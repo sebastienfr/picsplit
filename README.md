@@ -10,6 +10,51 @@ When 2 pictures are taken with more than an hour between them (configuration par
 a new folder is created to put the most recent picture in it.
 The file creation date is used as parameter to split the files.
 
+Supported extension are the following :
+
+- Image : JPG, JPEG,
+- Raw : NEF, NRW, CR2, CRW
+- Movie : MOV, AVI, MP4
+
+## Action
+
+Effects of **picsplit** are the following :
+
+```
+data
+├── PHOTO_01.JPG
+├── PHOTO_02.JPG
+├── PHOTO_03.CR2
+├── PHOTO_03.JPG
+├── PHOTO_04.JPG
+├── PHOTO_04.MOV
+├── PHOTO_04.NEF
+├── PHOTO_04.test
+└── TEST
+```
+
+to
+
+```
+data
+├── 2019\ -\ 0216\ -\ 0900
+│   └── PHOTO_01.JPG
+├── 2019\ -\ 0216\ -\ 1000
+│   └── PHOTO_02.JPG
+├── 2019\ -\ 0216\ -\ 1100
+│   ├── PHOTO_03.JPG
+│   └── raw
+│       └── PHOTO_03.CR2
+├── 2019\ -\ 0216\ -\ 1200
+│   ├── PHOTO_04.JPG
+│   ├── mov
+│   │   └── PHOTO_04.MOV
+│   └── raw
+│       └── PHOTO_04.NEF
+├── PHOTO_04.test
+└── TEST
+```
+
 ## Create test data
 
      etc/mktest.sh
