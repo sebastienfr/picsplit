@@ -28,7 +28,7 @@ var (
 	// movie -nomvmov : do not move the movie files in a separate subfolder called mov
 	noMoveMovie = false
 
-	// raw -nomvraw : move the raw files in a separate subfolder called raw
+	// raw -nomvraw : do not move the raw files in a separate subfolder called raw
 	noMoveRaw = false
 
 	// dryRun -dryrun : print the modification to be done without really moving the files
@@ -85,17 +85,17 @@ func main() {
 			Destination: &durationDelta,
 			Value:       durationDelta,
 			Name:        "delta, d",
-			Usage:       "The duration between two files, default 1h",
+			Usage:       "The duration between two files to split, default 1h",
 		},
 		cli.BoolFlag{
 			Destination: &noMoveMovie,
 			Name:        "nomvmov, nmm",
-			Usage:       "Move movies in a separate mov folder, default true",
+			Usage:       "Do not move movies in a separate mov folder",
 		},
 		cli.BoolFlag{
 			Destination: &noMoveRaw,
 			Name:        "nomvraw, nmr",
-			Usage:       "Move raw files in a separate raw folder, default true",
+			Usage:       "Do not move raw files in a separate raw folder",
 		},
 		cli.BoolFlag{
 			Destination: &dryRun,
