@@ -15,7 +15,7 @@ PKGS=$(shell go list ./... | grep -v /vendor/)
 # -----------------------------------------------------------------
 
 # version
-VERSION=0.0.1
+VERSION=1.0.0
 BUILDDATE=$(shell date -u '+%s')
 BUILDHASH=$(shell git rev-parse --short HEAD)
 VERSION_FLAG=-ldflags "-X main.Version=$(VERSION) -X main.GitHash=$(BUILDHASH) -X main.BuildStmp=$(BUILDDATE)"
