@@ -11,53 +11,53 @@ import (
 
 const (
 	// movie extension
-	Mov = ".mov"
-	Avi = ".avi"
-	Mp4 = ".mp4"
+	mov = ".mov"
+	avi = ".avi"
+	mp4 = ".mp4"
 
 	// picture extension
-	Jpg  = ".jpg"
-	Jpeg = ".jpeg"
+	jpg  = ".jpg"
+	jpeg = ".jpeg"
 
 	// raw picture extension
-	Nef = ".nef"
-	Nrw = ".nrw"
-	Crw = ".crw"
-	Cr2 = ".cr2"
+	nef = ".nef"
+	nrw = ".nrw"
+	crw = ".crw"
+	cr2 = ".cr2"
 
-	// mix const
-	MaxFiles          = 100
-	FolderNamePattern = "2006 - 0102 - 1504" // ex. 2019 - 0131 - 1030
-	MovFolder         = "mov"
-	RawFolder         = "raw"
+	maxFiles          = 100
+	folderNamePattern = "2006 - 0102 - 1504"
+	movFolder         = "mov"
+	rawFolder         = "raw"
 )
 
 var (
 	// movieExtension the list of movie file extension
-	MovieExtension = map[string]bool{
-		Mov: true,
-		Avi: true,
-		Mp4: true,
+	movieExtension = map[string]bool{
+		mov: true,
+		avi: true,
+		mp4: true,
 	}
 
 	// rawFileExtension the list of the raw file extension
-	RawFileExtension = map[string]bool{
-		Nef: true,
-		Nrw: true,
-		Crw: true,
-		Cr2: true,
+	rawFileExtension = map[string]bool{
+		nef: true,
+		nrw: true,
+		crw: true,
+		cr2: true,
 	}
 
 	// jpegExtension the list of the JPG file extension
-	JpegExtension = map[string]bool{
-		Jpg:  true,
-		Jpeg: true,
+	jpegExtension = map[string]bool{
+		jpg:  true,
+		jpeg: true,
 	}
 
 	// split directories cache
 	directories map[string]string
 )
 
+// Split is the main function the moves files to dated folders according to delta duration parameter
 func Split(basedir string, delta time.Duration, noMoveMov, noMoveRaw, dryRun bool) error {
 	// make directories cache
 	directories = make(map[string]string)
@@ -84,11 +84,11 @@ func listDirectories(basedir string) error {
 	}
 	defer file.Close()
 
-	fos, err := file.Readdir(MaxFiles)
-	for ; err == nil; fos, err = file.Readdir(MaxFiles) {
+	fos, err := file.Readdir(maxFiles)
+	for ; err == nil; fos, err = file.Readdir(maxFiles) {
 		for _, fi := range fos {
 			if fi.IsDir() {
-				_, err := time.Parse(FolderNamePattern, fi.Name())
+				_, err := time.Parse(folderNamePattern, fi.Name())
 				if err != nil {
 					logrus.Debugf("ignoring non date formatted folder : %s", fi.Name())
 					continue
@@ -111,12 +111,12 @@ func processFiles(basedir string, delta time.Duration, noMoveMov, noMoveRaw, dry
 	defer file.Close()
 
 	// list by batch of MaxFiles the files in the folder
-	fos, err := file.Readdir(MaxFiles)
+	fos, err := file.Readdir(maxFiles)
 	if err != nil {
 		return err
 	}
 
-	for ; err == nil; fos, err = file.Readdir(MaxFiles) {
+	for ; err == nil; fos, err = file.Readdir(maxFiles) {
 		// check for errors
 		if err != nil && err != io.EOF {
 			return err
@@ -146,7 +146,7 @@ func processFiles(basedir string, delta time.Duration, noMoveMov, noMoveRaw, dry
 				if isRaw(fi) && !noMoveRaw {
 					// create the mov directory
 					baseMovieDir := filepath.Join(basedir, datedFolder)
-					rawDir, err := findOrCreateFolder(baseMovieDir, RawFolder, dryRun)
+					rawDir, err := findOrCreateFolder(baseMovieDir, rawFolder, dryRun)
 					if err != nil {
 						return err
 					}
@@ -175,7 +175,7 @@ func processFiles(basedir string, delta time.Duration, noMoveMov, noMoveRaw, dry
 				if !noMoveMov {
 					// create the mov directory
 					baseMovieDir := filepath.Join(basedir, datedFolder)
-					movieDir, err := findOrCreateFolder(baseMovieDir, MovFolder, dryRun)
+					movieDir, err := findOrCreateFolder(baseMovieDir, movFolder, dryRun)
 					if err != nil {
 						return err
 					}
@@ -198,7 +198,7 @@ func processFiles(basedir string, delta time.Duration, noMoveMov, noMoveRaw, dry
 }
 
 func findOrCreateDatedFolder(basedir string, file os.FileInfo, delta time.Duration, dryRun bool) (string, error) {
-	roundedDate := file.ModTime().Round(delta).Format(FolderNamePattern)
+	roundedDate := file.ModTime().Round(delta).Format(folderNamePattern)
 
 	if dryRun {
 		return roundedDate, nil
@@ -208,20 +208,23 @@ func findOrCreateDatedFolder(basedir string, file os.FileInfo, delta time.Durati
 	if ok {
 		logrus.Debugf("found suitable folder : %s", roundedDate)
 		return f, nil
-	} else {
-		dirCreate := filepath.Join(basedir, roundedDate)
-		logrus.Debugf("create suitable folder : %s", roundedDate)
-		err := os.Mkdir(dirCreate, os.ModePerm)
-		if err != nil {
-			return "", err
-		}
-		fi, err := os.Stat(dirCreate)
-		if err != nil {
-			return "", err
-		}
-		directories[roundedDate] = fi.Name()
-		return fi.Name(), nil
 	}
+
+	dirCreate := filepath.Join(basedir, roundedDate)
+	logrus.Debugf("create suitable folder : %s", roundedDate)
+
+	err := os.Mkdir(dirCreate, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+
+	fi, err := os.Stat(dirCreate)
+	if err != nil {
+		return "", err
+	}
+
+	directories[roundedDate] = fi.Name()
+	return fi.Name(), nil
 }
 
 func findOrCreateFolder(basedir, name string, dryRun bool) (string, error) {
@@ -260,26 +263,26 @@ func moveFile(basedir, src, dest string, dryRun bool) error {
 	if !dryRun {
 		logrus.Warnf("move file : %v, to %v", srcPath, dstPath)
 		return os.Rename(srcPath, dstPath)
-	} else {
-		logrus.Warnf("move file : %v, to %v", srcPath, dstPath)
 	}
+
+	logrus.Warnf("move file : %v, to %v", srcPath, dstPath)
 	return nil
 }
 
 func isMovie(file os.FileInfo) bool {
 	ext := strings.ToLower(filepath.Ext(file.Name()))
-	isMovie := MovieExtension[ext]
+	isMovie := movieExtension[ext]
 	return isMovie
 }
 
 func isPicture(file os.FileInfo) bool {
 	ext := strings.ToLower(filepath.Ext(file.Name()))
-	isPicture := JpegExtension[ext] || RawFileExtension[ext]
+	isPicture := jpegExtension[ext] || rawFileExtension[ext]
 	return isPicture
 }
 
 func isRaw(file os.FileInfo) bool {
 	ext := strings.ToLower(filepath.Ext(file.Name()))
-	isRaw := RawFileExtension[ext]
+	isRaw := rawFileExtension[ext]
 	return isRaw
 }
