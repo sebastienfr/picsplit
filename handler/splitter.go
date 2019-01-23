@@ -24,6 +24,7 @@ const (
 	nrw = ".nrw"
 	crw = ".crw"
 	cr2 = ".cr2"
+	rw2 = ".rw2"
 
 	maxFiles          = 100
 	folderNamePattern = "2006 - 0102 - 1504"
@@ -45,6 +46,7 @@ var (
 		nrw: true,
 		crw: true,
 		cr2: true,
+		rw2: true,
 	}
 
 	// jpegExtension the list of the JPG file extension
