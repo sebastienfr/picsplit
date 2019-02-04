@@ -1,6 +1,7 @@
 # Picture splitter (picsplit)
 
 [![Build Status](https://travis-ci.org/sebastienfr/picsplit.svg?branch=master)](https://travis-ci.org/sebastienfr/picsplit)
+[![GolangCI](https://golangci.com/badges/github.com/sebastienfr/picsplit.svg)](https://golangci.com)
 [![GoDoc](https://godoc.org/github.com/sebastienfr/picsplit?status.svg)](https://godoc.org/github.com/sebastienfr/picsplit)
 [![Software License](http://img.shields.io/badge/license-APACHE2-blue.svg)](https://github.com/sebastienfr/picsplit/blob/master/LICENSE)
 
