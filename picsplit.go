@@ -23,8 +23,8 @@ var (
 	// path -path : the path to the folder containing the files to be processed
 	path = "."
 
-	// delta -delta : change the default (1h) delta time between 2 events to be split
-	durationDelta = 1 * time.Hour
+	// delta -delta : change the default (30min) delta time between 2 events to be split
+	durationDelta = 30 * time.Minute
 
 	// movie -nomvmov : do not move the movie files in a separate subfolder called mov
 	noMoveMovie = false
@@ -47,7 +47,7 @@ var (
 const (
 	// Default configuration values
 	defaultPath  = "."
-	defaultDelta = 1 * time.Hour
+	defaultDelta = 30 * time.Minute
 
 	// Application metadata
 	appName        = "picsplit"

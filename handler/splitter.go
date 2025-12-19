@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -46,6 +47,13 @@ const (
 	dateFormatPattern = "2006 - 0102 - 1504"
 )
 
+// fileGroup représente un groupe de fichiers détecté comme un événement
+type fileGroup struct {
+	folderName string
+	firstFile  os.FileInfo
+	files      []os.FileInfo
+}
+
 var (
 	// movieExtension the list of movie file extensions
 	movieExtension = map[string]bool{
@@ -77,13 +85,117 @@ var (
 		extAVIF: true,
 	}
 
-	// split directories cache
-	directories map[string]string
-
 	// Custom errors
 	ErrNotDirectory = errors.New("path is not a directory")
 	ErrInvalidDelta = errors.New("delta must be positive")
 )
+
+// collectMediaFiles récupère tous les fichiers médias (photos et vidéos)
+func collectMediaFiles(basePath string) ([]os.FileInfo, error) {
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	var mediaFiles []os.FileInfo
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			logrus.Warnf("failed to get info for %s: %v", entry.Name(), err)
+			continue
+		}
+
+		if isPicture(info) || isMovie(info) {
+			mediaFiles = append(mediaFiles, info)
+		} else {
+			logrus.Debugf("%s has unknown extension, skipping", info.Name())
+		}
+	}
+
+	return mediaFiles, nil
+}
+
+// sortFilesByModTime trie les fichiers par date de modification croissante
+func sortFilesByModTime(files []os.FileInfo) {
+	sort.Slice(files, func(i, j int) bool {
+		// Si les ModTime sont égaux, trier par nom (déterministe)
+		if files[i].ModTime().Equal(files[j].ModTime()) {
+			return files[i].Name() < files[j].Name()
+		}
+		return files[i].ModTime().Before(files[j].ModTime())
+	})
+}
+
+// groupFilesByGaps regroupe les fichiers par gaps temporels
+// Un nouveau groupe démarre quand gap > delta
+func groupFilesByGaps(files []os.FileInfo, delta time.Duration) []fileGroup {
+	if len(files) == 0 {
+		return nil
+	}
+
+	var groups []fileGroup
+
+	currentGroup := fileGroup{
+		files:     []os.FileInfo{files[0]},
+		firstFile: files[0],
+	}
+
+	for i := 1; i < len(files); i++ {
+		gap := files[i].ModTime().Sub(files[i-1].ModTime())
+
+		if gap <= delta {
+			// Gap acceptable, continuer le groupe
+			currentGroup.files = append(currentGroup.files, files[i])
+		} else {
+			// Gap trop grand, finaliser groupe actuel
+			currentGroup.folderName = currentGroup.firstFile.ModTime().Format(dateFormatPattern)
+			groups = append(groups, currentGroup)
+
+			// Démarrer nouveau groupe
+			currentGroup = fileGroup{
+				files:     []os.FileInfo{files[i]},
+				firstFile: files[i],
+			}
+		}
+	}
+
+	// Ajouter dernier groupe
+	currentGroup.folderName = currentGroup.firstFile.ModTime().Format(dateFormatPattern)
+	groups = append(groups, currentGroup)
+
+	return groups
+}
+
+// processGroup traite tous les fichiers d'un groupe
+func processGroup(cfg *Config, group fileGroup) error {
+	// Créer dossier principal (si pas dry-run)
+	if !cfg.DryRun {
+		groupDir := filepath.Join(cfg.BasePath, group.folderName)
+		if err := os.MkdirAll(groupDir, 0755); err != nil {
+			return fmt.Errorf("failed to create folder %s: %w", groupDir, err)
+		}
+	}
+
+	// Traiter chaque fichier
+	for _, file := range group.files {
+		if isPicture(file) {
+			if err := processPicture(cfg, file, group.folderName); err != nil {
+				return err
+			}
+		} else if isMovie(file) {
+			if err := processMovie(cfg, file, group.folderName); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
 
 // Split is the main function that moves files to dated folders according to configuration
 func Split(cfg *Config) error {
@@ -92,104 +204,42 @@ func Split(cfg *Config) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Initialize directories cache
-	directories = make(map[string]string)
-
-	// List existing dated directories
-	if err := listDirectories(cfg.BasePath); err != nil {
-		return fmt.Errorf("failed to list directories: %w", err)
-	}
-
-	// Process files in the base directory
-	if err := processFiles(cfg); err != nil {
-		return fmt.Errorf("failed to process files: %w", err)
-	}
-
-	return nil
-}
-
-func listDirectories(basedir string) error {
-	entries, err := os.ReadDir(basedir)
+	// 1. Collecter fichiers média
+	mediaFiles, err := collectMediaFiles(cfg.BasePath)
 	if err != nil {
-		return fmt.Errorf("failed to read directory %s: %w", basedir, err)
+		return fmt.Errorf("failed to collect media files: %w", err)
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		// Try to parse folder name as a date
-		_, err := time.Parse(dateFormatPattern, entry.Name())
-		if err != nil {
-			logrus.Debugf("ignoring non-date formatted folder: %s", entry.Name())
-			continue
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			logrus.Warnf("failed to get info for %s: %v", entry.Name(), err)
-			continue
-		}
-
-		logrus.Debugf("found folder: %s, date: %s", entry.Name(), info.ModTime().String())
-		directories[entry.Name()] = entry.Name()
+	if len(mediaFiles) == 0 {
+		logrus.Info("no media files found")
+		return nil
 	}
 
-	return nil
-}
+	logrus.Infof("found %d media files", len(mediaFiles))
 
-func processFiles(cfg *Config) error {
-	entries, err := os.ReadDir(cfg.BasePath)
-	if err != nil {
-		return fmt.Errorf("failed to read directory: %w", err)
-	}
+	// 2. Trier chronologiquement
+	sortFilesByModTime(mediaFiles)
 
-	for _, entry := range entries {
-		// Skip directories
-		if entry.IsDir() {
-			continue
+	// 3. Grouper par gaps
+	groups := groupFilesByGaps(mediaFiles, cfg.Delta)
+	logrus.Infof("detected %d event groups (delta: %v)", len(groups), cfg.Delta)
+
+	// 4. Traiter chaque groupe
+	for i, group := range groups {
+		logrus.Infof("[%d/%d] processing group %s (%d files)",
+			i+1, len(groups), group.folderName, len(group.files))
+
+		if err := processGroup(cfg, group); err != nil {
+			return fmt.Errorf("failed to process group %s: %w", group.folderName, err)
 		}
-
-		// Get file info
-		info, err := entry.Info()
-		if err != nil {
-			logrus.Warnf("failed to get info for %s: %v", entry.Name(), err)
-			continue
-		}
-
-		logrus.Debugf("processing file: %s, date: %s", info.Name(), info.ModTime().String())
-
-		// Process pictures
-		if isPicture(info) {
-			if err := processPicture(cfg, info); err != nil {
-				return fmt.Errorf("failed to process picture %s: %w", info.Name(), err)
-			}
-			continue
-		}
-
-		// Process movies
-		if isMovie(info) {
-			if err := processMovie(cfg, info); err != nil {
-				return fmt.Errorf("failed to process movie %s: %w", info.Name(), err)
-			}
-			continue
-		}
-
-		logrus.Debugf("%s has unknown extension, skipping", info.Name())
 	}
 
 	return nil
 }
 
 // processPicture handles the processing of picture files
-func processPicture(cfg *Config, fi os.FileInfo) error {
-	logrus.Debugf("processing picture: %s, date: %s", fi.Name(), fi.ModTime().String())
-
-	datedFolder, err := findOrCreateDatedFolder(cfg.BasePath, fi, cfg.Delta, cfg.DryRun)
-	if err != nil {
-		return err
-	}
+func processPicture(cfg *Config, fi os.FileInfo, datedFolder string) error {
+	logrus.Debugf("processing picture: %s → %s", fi.Name(), datedFolder)
 
 	destDir := datedFolder
 
@@ -207,13 +257,8 @@ func processPicture(cfg *Config, fi os.FileInfo) error {
 }
 
 // processMovie handles the processing of movie files
-func processMovie(cfg *Config, fi os.FileInfo) error {
-	logrus.Debugf("processing movie: %s, date: %s", fi.Name(), fi.ModTime().String())
-
-	datedFolder, err := findOrCreateDatedFolder(cfg.BasePath, fi, cfg.Delta, cfg.DryRun)
-	if err != nil {
-		return err
-	}
+func processMovie(cfg *Config, fi os.FileInfo, datedFolder string) error {
+	logrus.Debugf("processing movie: %s → %s", fi.Name(), datedFolder)
 
 	destDir := datedFolder
 
@@ -228,36 +273,6 @@ func processMovie(cfg *Config, fi os.FileInfo) error {
 	}
 
 	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.DryRun)
-}
-
-func findOrCreateDatedFolder(basedir string, file os.FileInfo, delta time.Duration, dryRun bool) (string, error) {
-	roundedDate := file.ModTime().Round(delta).Format(dateFormatPattern)
-
-	if dryRun {
-		return roundedDate, nil
-	}
-
-	// Check cache first
-	if folder, ok := directories[roundedDate]; ok {
-		logrus.Debugf("found suitable folder: %s", roundedDate)
-		return folder, nil
-	}
-
-	// Create new folder
-	dirCreate := filepath.Join(basedir, roundedDate)
-	logrus.Debugf("creating suitable folder: %s", roundedDate)
-
-	if err := os.Mkdir(dirCreate, 0755); err != nil {
-		return "", fmt.Errorf("failed to create directory %s: %w", dirCreate, err)
-	}
-
-	fi, err := os.Stat(dirCreate)
-	if err != nil {
-		return "", fmt.Errorf("failed to stat created directory: %w", err)
-	}
-
-	directories[roundedDate] = fi.Name()
-	return fi.Name(), nil
 }
 
 func findOrCreateFolder(basedir, name string, dryRun bool) (string, error) {

@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.1.0] - 2024-12-19
+
+### ✨ Improved
+- **Gap-based event detection algorithm**: Photos and videos are now grouped by temporal gaps instead of rounded timestamps
+- Folder names use the exact timestamp of the first file in each group (no more rounding)
+- Better handling of continuous photo sessions that span across hour boundaries
+- More natural event detection based on actual shooting patterns
+
+### 🔧 Technical Changes
+- New functions: `collectMediaFiles()`, `sortFilesByModTime()`, `groupFilesByGaps()`, `processGroup()`
+- Removed obsolete functions: `listDirectories()`, `findOrCreateDatedFolder()`, `processFiles()`
+- Refactored `Split()` to use gap-based grouping algorithm
+- Updated test suite with comprehensive tests for new grouping logic
+
+### 📝 Algorithm Explanation
+**Previous (v2.0.0)**: Files were rounded to the nearest `delta` interval
+- Example: Files at 09:45, 10:05, 10:25 with delta=1h would create folders "2024 - 0216 - 1000" and "2024 - 0216 - 1000"
+
+**New (v2.1.0)**: Files are grouped by gaps between consecutive timestamps
+- Files are sorted chronologically
+- A new group starts when the gap between consecutive files exceeds `delta`
+- Folder is named after the first file's exact timestamp
+- Example: Same files create a single folder "2024 - 0216 - 0945"
+
+**Migration Note**: Running v2.1.0 on v2.0.0-organized folders will create new folders. Best practice is to reorganize from original source files.
+
+---
+
 ## [2.0.0] - 2024-12-19
 
 ### 🚀 Breaking Changes

@@ -45,7 +45,7 @@ func (c *Config) Validate() error {
 func DefaultConfig(basePath string) *Config {
 	return &Config{
 		BasePath:    basePath,
-		Delta:       1 * time.Hour,
+		Delta:       30 * time.Minute,
 		NoMoveMovie: false,
 		NoMoveRaw:   false,
 		DryRun:      false,

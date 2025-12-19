@@ -13,9 +13,14 @@ Apache License version 2.0.
 ## Description
 Picture splitter (`picsplit`) is meant to process digital camera DCIM folder
 in order to split contiguous files (pictures and movies) in dedicated subfolders.
-When 2 pictures are taken with more than an hour between them (configuration parameter),
-a new folder is created (folder pattern YYYY - MMDD - hhmm) to put the most recent picture in it.
-The file creation date is used as parameter to split the files.
+
+**Gap-based event detection (v2.1.0+):**
+Files are sorted chronologically and grouped by temporal gaps. When the time gap 
+between two consecutive files exceeds the configured `delta` (default: 30 minutes), 
+a new folder is created. Each folder is named after the exact timestamp of its 
+first file (pattern: YYYY - MMDD - hhmm).
+
+The file modification time is used as the grouping parameter.
 
 Supported extension are the following :
 
@@ -33,7 +38,7 @@ Supported extension are the following :
 
 * `-nomvmov` : do not move movies in a separate `mov` folder
 * `-nomvraw` : do not move raw files in a separate `raw` folder
-* `-delta` : change the default (1h) delta time between 2 files to be split
+* `-delta` : change the default (30min) delta time between 2 files to be split
 * `-dryrun` : print the modification to be done without really moving the files
 * `-v` : verbose
 * `-h` : help
@@ -59,23 +64,24 @@ to
 
 ```
 data
-├── 2019 - 0216 - 0900
-│   └── PHOTO_01.JPG
-├── 2019 - 0216 - 1000
-│   └── PHOTO_02.JPG
-├── 2019 - 0216 - 1100
-│   ├── PHOTO_03.JPG
-│   └── raw
-│       └── PHOTO_03.CR2
-├── 2019 - 0216 - 1200
-│   ├── PHOTO_04.JPG
-│   ├── mov
-│   │   └── PHOTO_04.MOV
-│   └── raw
-│       └── PHOTO_04.NEF
+├── 2019 - 0216 - 0835
+│   ├── PHOTO_01.JPG
+│   ├── PHOTO_02.JPG
+│   ├── PHOTO_03.JPG
+│   ├── PHOTO_04.JPG
+│   ├── mov
+│   │   └── PHOTO_04.MOV
+│   └── raw
+│       ├── PHOTO_03.CR2
+│       └── PHOTO_04.NEF
 ├── PHOTO_04.test
 └── TEST
 ```
+
+**Note**: With default delta=30min, photos would be split into multiple folders 
+when gaps exceed 30min. Example with delta=1h shown: all photos (08:35, 09:35, 
+10:35, 11:35, 11:44) grouped in one folder since gaps ≤1h. Folder named 
+"2019 - 0216 - 0835" (timestamp of first file PHOTO_01.JPG).
 
 ## Installation
 
@@ -149,7 +155,14 @@ git push origin v2.0.1 # Triggers automatic release via GitHub Actions
 
 ## Roadmap
 
-### Version 2.0.0 (Current - December 2024)
+### Version 2.1.0 (Current - December 2024)
+
+- [X] Gap-based event detection algorithm
+- [X] Improved grouping of continuous photo sessions
+- [X] Folder naming based on first file's exact timestamp
+- [X] Better handling of sessions spanning hour boundaries
+
+### Version 2.0.0 (December 2024)
 
 - [X] Migration to Go 1.25
 - [X] Migration to urfave/cli v2
