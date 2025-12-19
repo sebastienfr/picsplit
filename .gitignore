@@ -40,6 +40,9 @@ _testmain.go
 coverage.out
 coverage.html
 
+# GoReleaser output
+dist/
+
 ### OSX ###
 .DS_Store
 .AppleDouble

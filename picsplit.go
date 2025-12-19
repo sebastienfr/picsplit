@@ -58,7 +58,6 @@ const (
 
 // InitLog initializes the logrus logger
 func InitLog(verbose bool) {
-
 	logrus.SetFormatter(&logrus.TextFormatter{
 		DisableColors:    true,
 		DisableTimestamp: true,
@@ -74,7 +73,6 @@ func InitLog(verbose bool) {
 }
 
 func main() {
-
 	// customize version flag
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "print-version",
@@ -136,7 +134,6 @@ func main() {
 	// main action
 	// sub action are also possible
 	app.Action = func(c *cli.Context) error {
-
 		// init log options from command line params
 		InitLog(verbose)
 

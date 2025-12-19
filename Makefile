@@ -45,8 +45,12 @@ help:
 	@echo "test-verbose         run tests with verbose output"
 	@echo "----- CODE QUALITY ---------------------------------------------------------------"
 	@echo "format               format all packages"
-	@echo "lint                 lint all packages"
+	@echo "lint                 lint all packages with go vet"
+	@echo "lint-ci              lint with golangci-lint (comprehensive)"
 	@echo "tidy                 tidy go modules"
+	@echo "----- RELEASE --------------------------------------------------------------------"
+	@echo "release-snapshot     test GoReleaser build (local snapshot)"
+	@echo "release-local        test GoReleaser build (no publish)"
 	@echo "----- UTILITIES ------------------------------------------------------------------"
 	@echo "help                 print this message"
 
@@ -61,6 +65,7 @@ clean:
 	@rm -Rf *.mem
 	@rm -f screenshot*.png screenshot*.jpg screenshot*.webp
 	@rm -Rf $(BIN_DIR)
+	@rm -Rf dist/
 	@rm -f $(INSTALL_PATH)
 
 .PHONY: build
@@ -84,8 +89,14 @@ format:
 
 .PHONY: lint
 lint:
-	@echo "Linting code..."
+	@echo "Linting code with go vet..."
 	@go vet $(PKGS)
+
+.PHONY: lint-ci
+lint-ci:
+	@echo "Linting code with golangci-lint..."
+	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: brew install golangci-lint" && exit 1)
+	@golangci-lint run --timeout=5m
 
 .PHONY: tidy
 tidy:
@@ -125,3 +136,19 @@ coverage-html: test-coverage
 	@go tool cover -html=$(COVERAGE_FILE) -o $(COVERAGE_HTML)
 	@echo "HTML report: $(COVERAGE_HTML)"
 	@open $(COVERAGE_HTML) 2>/dev/null || xdg-open $(COVERAGE_HTML) 2>/dev/null || echo "Open $(COVERAGE_HTML) manually"
+
+# -----------------------------------------------------------------
+#        Release
+# -----------------------------------------------------------------
+
+.PHONY: release-snapshot
+release-snapshot:
+	@echo "Building snapshot release with GoReleaser..."
+	@which goreleaser > /dev/null || (echo "GoReleaser not installed. Run: brew install goreleaser" && exit 1)
+	@goreleaser release --snapshot --clean --skip=publish
+
+.PHONY: release-local
+release-local:
+	@echo "Building local release with GoReleaser (dry-run)..."
+	@which goreleaser > /dev/null || (echo "GoReleaser not installed. Run: brew install goreleaser" && exit 1)
+	@goreleaser release --clean --skip=publish --skip=validate

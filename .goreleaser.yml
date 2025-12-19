@@ -1,0 +1,164 @@
+# GoReleaser configuration for picsplit
+# Documentation: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: picsplit
+    main: ./picsplit.go
+    binary: picsplit
+    env:
+      - CGO_ENABLED=0
+    
+    # Version information via ldflags (matching Makefile)
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.GitHash={{.ShortCommit}}
+      - -X main.BuildStmp={{.Timestamp}}
+    
+    # Target platforms
+    goos:
+      - linux
+      - darwin
+      - windows
+    
+    goarch:
+      - amd64
+      - arm64
+    
+    # Ignore combinations
+    ignore:
+      - goos: windows
+        goarch: arm64  # Windows ARM64 support is still experimental
+
+archives:
+  - id: picsplit-archive
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    
+    # Use zip for Windows
+    format_overrides:
+      - goos: windows
+        format: zip
+    
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'typo'
+  groups:
+    - title: 'New Features'
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: 'Performance Improvements'
+      regexp: "^.*perf[(\\w)]*:+.*$"
+      order: 2
+    - title: 'Refactors'
+      regexp: "^.*refactor[(\\w)]*:+.*$"
+      order: 3
+    - title: 'Other Changes'
+      order: 999
+
+release:
+  github:
+    owner: sebastienfr
+    name: picsplit
+  
+  # Release notes
+  header: |
+    ## picsplit {{ .Tag }}
+    
+    {{ .Date }}
+    
+    ### Installation
+    
+    Download the pre-compiled binaries for your platform below.
+    
+    #### macOS (Homebrew)
+    ```bash
+    # Intel
+    wget https://github.com/sebastienfr/picsplit/releases/download/{{ .Tag }}/picsplit_{{ .Version }}_darwin_amd64.tar.gz
+    tar -xzf picsplit_{{ .Version }}_darwin_amd64.tar.gz
+    sudo mv picsplit /usr/local/bin/
+    
+    # Apple Silicon (M1/M2/M3)
+    wget https://github.com/sebastienfr/picsplit/releases/download/{{ .Tag }}/picsplit_{{ .Version }}_darwin_arm64.tar.gz
+    tar -xzf picsplit_{{ .Version }}_darwin_arm64.tar.gz
+    sudo mv picsplit /usr/local/bin/
+    ```
+    
+    #### Linux
+    ```bash
+    # AMD64
+    wget https://github.com/sebastienfr/picsplit/releases/download/{{ .Tag }}/picsplit_{{ .Version }}_linux_amd64.tar.gz
+    tar -xzf picsplit_{{ .Version }}_linux_amd64.tar.gz
+    sudo mv picsplit /usr/local/bin/
+    
+    # ARM64
+    wget https://github.com/sebastienfr/picsplit/releases/download/{{ .Tag }}/picsplit_{{ .Version }}_linux_arm64.tar.gz
+    tar -xzf picsplit_{{ .Version }}_linux_arm64.tar.gz
+    sudo mv picsplit /usr/local/bin/
+    ```
+    
+    #### Windows
+    Download the `.zip` file for your architecture and extract it.
+    
+    ---
+  
+  footer: |
+    ---
+    
+    **Full Changelog**: https://github.com/sebastienfr/picsplit/compare/{{ .PreviousTag }}...{{ .Tag }}
+    
+    ### Verify checksums
+    
+    All binaries are checksummed. Download `checksums.txt` and verify:
+    
+    ```bash
+    sha256sum -c checksums.txt
+    ```
+  
+  # Disable draft and prerelease by default
+  draft: false
+  prerelease: auto
+  
+  # Name and description
+  name_template: "{{.ProjectName}} {{.Tag}}"
+  mode: append
+
+# Announce (optional - can be configured later)
+# announce:
+#   slack:
+#     enabled: false
+#   twitter:
+#     enabled: false

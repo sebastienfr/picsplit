@@ -47,14 +47,14 @@ func createTestDataset(t *testing.T, baseDir string) {
 		name    string
 		modTime time.Time
 	}{
-		{"PHOTO_01.JPG", time.Date(year, 2, 16, 8, 35, 0, 0, time.UTC)},
-		{"PHOTO_02.JPG", time.Date(year, 2, 16, 9, 35, 0, 0, time.UTC)},
-		{"PHOTO_03.JPG", time.Date(year, 2, 16, 10, 35, 0, 0, time.UTC)},
-		{"PHOTO_03.CR2", time.Date(year, 2, 16, 10, 35, 0, 0, time.UTC)},
-		{"PHOTO_04.JPG", time.Date(year, 2, 16, 11, 35, 0, 0, time.UTC)},
-		{"PHOTO_04.NEF", time.Date(year, 2, 16, 11, 35, 0, 0, time.UTC)},
-		{"PHOTO_04.MOV", time.Date(year, 2, 16, 11, 44, 0, 0, time.UTC)},
-		{"PHOTO_04.test", time.Date(year, 2, 16, 16, 44, 0, 0, time.UTC)},
+		{"PHOTO_01.JPG", time.Date(year, 2, 16, 8, 35, 0, 0, time.Local)},
+		{"PHOTO_02.JPG", time.Date(year, 2, 16, 9, 35, 0, 0, time.Local)},
+		{"PHOTO_03.JPG", time.Date(year, 2, 16, 10, 35, 0, 0, time.Local)},
+		{"PHOTO_03.CR2", time.Date(year, 2, 16, 10, 35, 0, 0, time.Local)},
+		{"PHOTO_04.JPG", time.Date(year, 2, 16, 11, 35, 0, 0, time.Local)},
+		{"PHOTO_04.NEF", time.Date(year, 2, 16, 11, 35, 0, 0, time.Local)},
+		{"PHOTO_04.MOV", time.Date(year, 2, 16, 11, 44, 0, 0, time.Local)},
+		{"PHOTO_04.test", time.Date(year, 2, 16, 16, 44, 0, 0, time.Local)},
 	}
 
 	// Create TEST directory
@@ -815,13 +815,12 @@ func TestSplit_Integration(t *testing.T) {
 		year := time.Now().Year()
 
 		// Verify expected structure
-		// 08:35 rounds to 09:00, 09:35 rounds to 10:00, 10:35 rounds to 11:00, 11:35 rounds to 12:00, 11:44 rounds to 12:00, 16:44 rounds to 17:00
+		// 08:35 → folder 0900, 09:35 → 1000 (>1h from 08:35), 10:35 → 1100 (>1h from 09:35), 11:35 → 1200 (>1h from 10:35), 11:44 → 1200 (<1h from 11:35)
 		expectedFiles := map[string][]string{
-			fmt.Sprintf("%d - 0216 - 1000", year): {"PHOTO_01.JPG"},
-			fmt.Sprintf("%d - 0216 - 1100", year): {"PHOTO_02.JPG"},
-			fmt.Sprintf("%d - 0216 - 1200", year): {"PHOTO_03.JPG"},
-			fmt.Sprintf("%d - 0216 - 1300", year): {"PHOTO_04.JPG"},
-			fmt.Sprintf("%d - 0216 - 1700", year): {}, // PHOTO_04.test ignored
+			fmt.Sprintf("%d - 0216 - 0900", year): {"PHOTO_01.JPG"},
+			fmt.Sprintf("%d - 0216 - 1000", year): {"PHOTO_02.JPG"},
+			fmt.Sprintf("%d - 0216 - 1100", year): {"PHOTO_03.JPG"},
+			fmt.Sprintf("%d - 0216 - 1200", year): {"PHOTO_04.JPG"},
 		}
 
 		for folder, files := range expectedFiles {
@@ -847,8 +846,8 @@ func TestSplit_Integration(t *testing.T) {
 
 		// Verify RAW files are in raw subfolder
 		rawPaths := []string{
-			filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1200", year), rawFolderName, "PHOTO_03.CR2"),
-			filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1300", year), rawFolderName, "PHOTO_04.NEF"),
+			filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1100", year), rawFolderName, "PHOTO_03.CR2"),
+			filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1200", year), rawFolderName, "PHOTO_04.NEF"),
 		}
 
 		for _, path := range rawPaths {
@@ -858,7 +857,7 @@ func TestSplit_Integration(t *testing.T) {
 		}
 
 		// Verify movie is in mov subfolder
-		movPath := filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1300", year), movFolderName, "PHOTO_04.MOV")
+		movPath := filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1200", year), movFolderName, "PHOTO_04.MOV")
 		if _, err := os.Stat(movPath); os.IsNotExist(err) {
 			t.Error("expected movie file PHOTO_04.MOV not found in mov subfolder")
 		}

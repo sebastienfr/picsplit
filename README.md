@@ -1,8 +1,10 @@
 # Picture splitter (picsplit)
 
-[![Build Status](https://travis-ci.org/sebastienfr/picsplit.svg?branch=master)](https://travis-ci.org/sebastienfr/picsplit)
-[![GolangCI](https://golangci.com/badges/github.com/sebastienfr/picsplit.svg)](https://golangci.com)
+[![CI](https://github.com/sebastienfr/picsplit/actions/workflows/test.yml/badge.svg)](https://github.com/sebastienfr/picsplit/actions/workflows/test.yml)
+[![CodeQL](https://github.com/sebastienfr/picsplit/actions/workflows/codeql.yml/badge.svg)](https://github.com/sebastienfr/picsplit/actions/workflows/codeql.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/sebastienfr/picsplit)](https://goreportcard.com/report/github.com/sebastienfr/picsplit)
 [![GoDoc](https://godoc.org/github.com/sebastienfr/picsplit?status.svg)](https://godoc.org/github.com/sebastienfr/picsplit)
+[![Latest Release](https://img.shields.io/github/v/release/sebastienfr/picsplit)](https://github.com/sebastienfr/picsplit/releases)
 [![Software License](http://img.shields.io/badge/license-APACHE2-blue.svg)](https://github.com/sebastienfr/picsplit/blob/master/LICENSE)
 
 ## License
@@ -75,19 +77,69 @@ data
 └── TEST
 ```
 
-## Build and test
+## Installation
 
-Makefile is used to build `picsplit`
+### Pre-built binaries
 
-     make
-     
-Run tests with coverage:
+Download the latest release for your platform from the [releases page](https://github.com/sebastienfr/picsplit/releases).
 
-     make test-coverage
-     
-Generate HTML coverage report:
+Available platforms:
+- macOS (Intel & Apple Silicon)
+- Linux (amd64 & arm64)
+- Windows (amd64)
 
-     make coverage-html
+### Build from source
+
+```bash
+git clone https://github.com/sebastienfr/picsplit.git
+cd picsplit
+make build
+```
+
+The binary will be created in `./bin/picsplit`.
+
+To install system-wide:
+
+```bash
+make install
+```
+
+## Development
+
+### Build and test
+
+Makefile is used to build `picsplit`:
+
+```bash
+make              # Clean, build and test
+make build        # Build binary to ./bin/picsplit
+make test         # Run tests
+make test-coverage # Run tests with coverage
+make coverage-html # Generate HTML coverage report
+make lint-ci      # Run golangci-lint
+```
+
+### Running tests
+
+```bash
+make test-coverage
+make coverage-html  # Opens HTML report in browser
+```
+
+### Linting
+
+```bash
+make lint         # Basic go vet
+make lint-ci      # Comprehensive linting with golangci-lint
+```
+
+### Release (maintainers only)
+
+```bash
+make release-snapshot  # Test release build locally
+git tag -a v2.0.1 -m "Release v2.0.1"
+git push origin v2.0.1 # Triggers automatic release via GitHub Actions
+```
 
 ## Usage
 
@@ -97,14 +149,17 @@ Generate HTML coverage report:
 
 ## Roadmap
 
-### Version 2.0.0 (Current)
+### Version 2.0.0 (Current - December 2024)
 
 - [X] Migration to Go 1.25
 - [X] Migration to urfave/cli v2
 - [X] Support for modern image formats (HEIC, WebP, AVIF)
 - [X] Support for additional RAW formats (DNG, ARW, ORF, RAF)
-- [X] Comprehensive test suite (80%+ coverage)
+- [X] Comprehensive test suite (82.8% coverage)
 - [X] Improved error handling
+- [X] GitHub Actions CI/CD pipeline
+- [X] Automated releases with GoReleaser (multi-platform binaries)
+- [X] Security scanning with CodeQL
 
 ### Version 1.0.0
 
