@@ -3,12 +3,13 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/sebastienfr/picsplit/handler"
-	"github.com/sirupsen/logrus"
-	"github.com/urfave/cli"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/sebastienfr/picsplit/handler"
+	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli/v2"
 )
 
 var (
@@ -43,6 +44,18 @@ var (
 		"AgPnwgICBfXy98X19fXy9fX3x8X198CnxfX3wgICAgICAgICAgIFwvICAgICBcLyB8X198")
 )
 
+const (
+	// Default configuration values
+	defaultPath  = "."
+	defaultDelta = 1 * time.Hour
+
+	// Application metadata
+	appName        = "picsplit"
+	appUsage       = "picture event splitter"
+	authorName     = "sfr"
+	copyrightOwner = "Sfeir"
+)
+
 // InitLog initializes the logrus logger
 func InitLog(verbose bool) {
 
@@ -63,48 +76,59 @@ func InitLog(verbose bool) {
 func main() {
 
 	// customize version flag
-	cli.VersionFlag = cli.BoolFlag{Name: "print-version, V"}
+	cli.VersionFlag = &cli.BoolFlag{
+		Name:    "print-version",
+		Aliases: []string{"V"},
+	}
 
 	// new app
-	app := cli.NewApp()
-	app.Name = "picsplit"
-	app.Usage = "picture event spliter"
-
 	timeStmp, err := strconv.Atoi(BuildStmp)
 	if err != nil {
 		timeStmp = 0
 	}
 
-	app.Version = Version + ", build on " + time.Unix(int64(timeStmp), 0).String() + ", git hash " + GitHash
-	app.Authors = []cli.Author{{Name: "sfr"}}
-	app.Copyright = "Sfeir " + strconv.Itoa(time.Now().Year())
+	app := &cli.App{
+		Name:  appName,
+		Usage: appUsage,
+		Version: Version + ", build on " + time.Unix(int64(timeStmp), 0).String() +
+			", git hash " + GitHash,
+		Authors: []*cli.Author{
+			{Name: authorName},
+		},
+		Copyright: copyrightOwner + " " + strconv.Itoa(time.Now().Year()),
+	}
 
 	// command line flags
 	app.Flags = []cli.Flag{
-		cli.DurationFlag{
+		&cli.DurationFlag{
+			Name:        "delta",
+			Aliases:     []string{"d"},
+			Value:       defaultDelta,
 			Destination: &durationDelta,
-			Value:       durationDelta,
-			Name:        "delta, d",
-			Usage:       "The duration between two files to split, default 1h",
+			Usage:       "The duration between two files to split",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
+			Name:        "nomvmov",
+			Aliases:     []string{"nmm"},
 			Destination: &noMoveMovie,
-			Name:        "nomvmov, nmm",
 			Usage:       "Do not move movies in a separate mov folder",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
+			Name:        "nomvraw",
+			Aliases:     []string{"nmr"},
 			Destination: &noMoveRaw,
-			Name:        "nomvraw, nmr",
 			Usage:       "Do not move raw files in a separate raw folder",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
+			Name:        "dryrun",
+			Aliases:     []string{"dr"},
 			Destination: &dryRun,
-			Name:        "dryrun, dr",
 			Usage:       "Only print actions to do, do not move physically the files",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
+			Name:        "verbose",
+			Aliases:     []string{"v"},
 			Destination: &verbose,
-			Name:        "verbose, v",
 			Usage:       "Print debug information",
 		},
 	}
@@ -120,7 +144,7 @@ func main() {
 		fmt.Println(string(header))
 
 		if c.NArg() == 1 {
-			path = c.Args()[0]
+			path = c.Args().Get(0)
 		} else if c.NArg() > 1 {
 			return fmt.Errorf("wrong count of argument %d, a unique path is required", c.NArg())
 		}
@@ -144,7 +168,14 @@ func main() {
 			return fmt.Errorf("provided path %s is not a directory", path)
 		}
 
-		return handler.Split(path, durationDelta, noMoveMovie, noMoveRaw, dryRun)
+		cfg := &handler.Config{
+			BasePath:    path,
+			Delta:       durationDelta,
+			NoMoveMovie: noMoveMovie,
+			NoMoveRaw:   noMoveRaw,
+			DryRun:      dryRun,
+		}
+		return handler.Split(cfg)
 	}
 
 	// run the app

@@ -1,5 +1,6 @@
 ### GO ###
 build/
+bin/
 *.out
 *.log
 _*
@@ -34,6 +35,10 @@ _testmain.go
 *.exe
 *.test
 *.prof
+
+# Coverage reports
+coverage.out
+coverage.html
 
 ### OSX ###
 .DS_Store

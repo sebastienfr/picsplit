@@ -17,14 +17,14 @@ The file creation date is used as parameter to split the files.
 
 Supported extension are the following :
 
-- Image : JPG, JPEG,
-- Raw : NEF, NRW, CR2, CRW
+- Image : JPG, JPEG, HEIC, HEIF, WebP, AVIF
+- Raw : NEF, NRW, CR2, CRW, RW2, DNG, ARW, ORF, RAF
 - Movie : MOV, AVI, MP4
 
 ## Technology stack
 
-1. [Go](https://golang.org) is the language
-2. [Urfave/cli](https://github.com/urfave/cli) the CLI library
+1. [Go 1.25](https://golang.org) is the language
+2. [Urfave/cli v2](https://github.com/urfave/cli) the CLI library
 3. [Logrus](https://github.com/sirupsen/logrus) the logger
 
 ## CLI Parameters
@@ -81,9 +81,13 @@ Makefile is used to build `picsplit`
 
      make
      
-Create a populated test folder
+Run tests with coverage:
 
-     etc/mktest.sh
+     make test-coverage
+     
+Generate HTML coverage report:
+
+     make coverage-html
 
 ## Usage
 
@@ -93,7 +97,16 @@ Create a populated test folder
 
 ## Roadmap
 
-### First release
+### Version 2.0.0 (Current)
+
+- [X] Migration to Go 1.25
+- [X] Migration to urfave/cli v2
+- [X] Support for modern image formats (HEIC, WebP, AVIF)
+- [X] Support for additional RAW formats (DNG, ARW, ORF, RAF)
+- [X] Comprehensive test suite (80%+ coverage)
+- [X] Improved error handling
+
+### Version 1.0.0
 
 - [X] configurable delta
 - [X] move movies
