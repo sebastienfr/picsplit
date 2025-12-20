@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+const (
+	defaultGPSRadiusMeters = 2000.0 // Rayon par défaut pour le clustering GPS : 2km
+)
+
 // Config holds all configuration for the split operation
 type Config struct {
 	BasePath    string
@@ -14,6 +18,8 @@ type Config struct {
 	NoMoveRaw   bool
 	DryRun      bool
 	UseEXIF     bool
+	UseGPS      bool
+	GPSRadius   float64 // Rayon en mètres pour le clustering GPS
 }
 
 // Validate checks if the configuration is valid
@@ -24,6 +30,10 @@ func (c *Config) Validate() error {
 
 	if c.Delta <= 0 {
 		return ErrInvalidDelta
+	}
+
+	if c.UseGPS && c.GPSRadius <= 0 {
+		return errors.New("GPS radius must be positive when GPS clustering is enabled")
 	}
 
 	// Check if path exists and is a directory
@@ -51,5 +61,7 @@ func DefaultConfig(basePath string) *Config {
 		NoMoveRaw:   false,
 		DryRun:      false,
 		UseEXIF:     true,
+		UseGPS:      false,                  // GPS clustering désactivé par défaut (opt-in)
+		GPSRadius:   defaultGPSRadiusMeters, // 2000m = 2km
 	}
 }

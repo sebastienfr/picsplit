@@ -41,6 +41,12 @@ var (
 	// useEXIF -use-exif : use EXIF metadata for dates (photos and videos)
 	useEXIF = true
 
+	// useGPS -gps : enable GPS location clustering
+	useGPS = false
+
+	// gpsRadius -gps-radius : GPS clustering radius in meters
+	gpsRadius = 2000.0
+
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
 		"X19fIHxfX3wgX19fXyAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
@@ -138,6 +144,19 @@ func main() {
 			Destination: &useEXIF,
 			Usage:       "Use EXIF metadata for dates (photos and videos)",
 		},
+		&cli.BoolFlag{
+			Name:        "gps",
+			Aliases:     []string{"g"},
+			Destination: &useGPS,
+			Usage:       "Enable GPS location clustering (group by location then time)",
+		},
+		&cli.Float64Flag{
+			Name:        "gps-radius",
+			Aliases:     []string{"gr"},
+			Value:       2000.0,
+			Destination: &gpsRadius,
+			Usage:       "GPS clustering radius in meters (default: 2000m = 2km)",
+		},
 	}
 
 	// main action
@@ -162,6 +181,9 @@ func main() {
 		logrus.Debugf("| no move movies       : %t", noMoveMovie)
 		logrus.Debugf("| no move raw          : %t", noMoveRaw)
 		logrus.Debugf("| verbose              : %t", verbose)
+		logrus.Debugf("| use EXIF             : %t", useEXIF)
+		logrus.Debugf("| use GPS clustering   : %t", useGPS)
+		logrus.Debugf("| GPS radius (meters)  : %.0f", gpsRadius)
 		logrus.Debug("* ----------------------------------------------------- *")
 
 		// check path exists
@@ -181,6 +203,8 @@ func main() {
 			NoMoveRaw:   noMoveRaw,
 			DryRun:      dryRun,
 			UseEXIF:     useEXIF,
+			UseGPS:      useGPS,
+			GPSRadius:   gpsRadius,
 		}
 		return handler.Split(cfg)
 	}

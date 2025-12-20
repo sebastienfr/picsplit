@@ -1,5 +1,80 @@
 # Changelog
 
+## [2.3.0] - 2024-12-20
+
+### ✨ Added
+- **GPS location clustering**: Group photos by geographic location first, then by time within each location
+- Spatial-first algorithm: DBSCAN-like clustering with configurable radius (default: 2km)
+- Folder structure: `<LocationCoords>/<TimeFolder>/` (e.g., `48.8566N-2.3522E/2025 - 0616 - 0945/`)
+- Special `NoLocation/` folder for files without GPS coordinates
+- New CLI flags:
+  - `--gps` / `-g`: Enable GPS location clustering (default: false, opt-in feature)
+  - `--gps-radius` / `-gr`: Set clustering radius in meters (default: 2000m = 2km)
+- 100% test coverage for GPS clustering and geographic calculation modules
+
+### 🔧 Technical Changes
+- New file `handler/geo.go`: Geographic calculations (Haversine distance, centroid, coordinate formatting)
+- New file `handler/clustering.go`: DBSCAN-like spatial clustering and time-based grouping
+- New `GPSCoord` struct for latitude/longitude coordinates
+- New `LocationCluster` struct for geographic file grouping
+- Updated `Config` struct with `UseGPS` and `GPSRadius` fields
+- Config validation: GPS radius must be positive when GPS enabled
+- Enhanced `Split()` function with dual-mode operation (GPS or time-only)
+
+### 📝 Algorithm Details
+**GPS Clustering Mode** (when `--gps` enabled):
+1. **Spatial clustering**: Files with GPS coordinates are grouped by proximity (DBSCAN-like)
+   - Files within `GPSRadius` meters belong to the same location cluster
+   - Each cluster's centroid becomes the folder name (e.g., `48.8566N-2.3522E`)
+2. **Temporal grouping**: Within each location cluster, files are grouped by time gaps
+   - Same `--delta` parameter as time-only mode (default: 30 minutes)
+   - Results in nested structure: `<Location>/<TimeGroup>/`
+3. **NoLocation handling**: Files without GPS coordinates are placed in `NoLocation/<TimeGroup>/`
+
+**Time-Only Mode** (default, `--gps` disabled):
+- Backward compatible with v2.1.0 and v2.2.0 behavior
+- Files grouped purely by temporal gaps (no GPS consideration)
+
+**Geographic Calculations**:
+- Haversine formula for accurate distance calculation on Earth's surface
+- Earth radius: 6,371,000 meters (mean radius)
+- Centroid calculation: Simple arithmetic mean of coordinates (suitable for small clusters)
+- Coordinate formatting: `<Lat>N/S-<Lon>E/W` (e.g., `48.8566N-2.3522E`, `51.5074N-0.1278W`)
+
+### ⚙️ Configuration
+**Default values**:
+- `UseGPS`: `false` (opt-in to maintain backward compatibility)
+- `GPSRadius`: `2000.0` meters (2km, typical city exploration range)
+
+**Usage examples**:
+```bash
+# Enable GPS clustering with default 2km radius
+picsplit --gps ./photos
+
+# Custom 5km radius for larger geographic areas
+picsplit --gps --gps-radius 5000 ./photos
+
+# Dry run to preview GPS clustering structure
+picsplit --gps --dryrun ./photos
+
+# Combine with EXIF and other options
+picsplit --gps --use-exif --delta 1h ./photos
+```
+
+### 🧪 Test Coverage
+- `handler/geo.go`: 100% coverage (19 test cases)
+  - Distance calculations (Paris-London, NY-LA, equator crossing, etc.)
+  - Centroid calculations (triangle, midpoint, empty, negative coords)
+  - Coordinate formatting (all hemispheres, high precision)
+  - Radians conversion
+- `handler/clustering.go`: 100% coverage (11 test cases)
+  - Location clustering (multiple clusters, single cluster, no GPS, distant clusters)
+  - Time-based grouping within locations
+  - NoLocation folder naming
+- Overall project coverage: 73.8%
+
+---
+
 ## [2.2.0] - 2024-12-20
 
 ### ✨ Added
