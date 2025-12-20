@@ -23,8 +23,8 @@ var (
 	// path -path : the path to the folder containing the files to be processed
 	path = "."
 
-	// delta -delta : change the default (1h) delta time between 2 events to be split
-	durationDelta = 1 * time.Hour
+	// delta -delta : change the default (30min) delta time between 2 events to be split
+	durationDelta = 30 * time.Minute
 
 	// movie -nomvmov : do not move the movie files in a separate subfolder called mov
 	noMoveMovie = false
@@ -38,6 +38,9 @@ var (
 	// verbose -v : print the detailed logs to the output
 	verbose = false
 
+	// useEXIF -use-exif : use EXIF metadata for dates (photos and videos)
+	useEXIF = true
+
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
 		"X19fIHxfX3wgX19fXyAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
@@ -47,13 +50,13 @@ var (
 const (
 	// Default configuration values
 	defaultPath  = "."
-	defaultDelta = 1 * time.Hour
+	defaultDelta = 30 * time.Minute
 
 	// Application metadata
 	appName        = "picsplit"
 	appUsage       = "picture event splitter"
 	authorName     = "sfr"
-	copyrightOwner = "Sfeir"
+	copyrightOwner = "sebastienfr"
 )
 
 // InitLog initializes the logrus logger
@@ -129,6 +132,12 @@ func main() {
 			Destination: &verbose,
 			Usage:       "Print debug information",
 		},
+		&cli.BoolFlag{
+			Name:        "use-exif",
+			Value:       true,
+			Destination: &useEXIF,
+			Usage:       "Use EXIF metadata for dates (photos and videos)",
+		},
 	}
 
 	// main action
@@ -171,6 +180,7 @@ func main() {
 			NoMoveMovie: noMoveMovie,
 			NoMoveRaw:   noMoveRaw,
 			DryRun:      dryRun,
+			UseEXIF:     useEXIF,
 		}
 		return handler.Split(cfg)
 	}

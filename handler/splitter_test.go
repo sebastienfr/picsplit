@@ -12,8 +12,18 @@ import (
 // Test Helpers
 // ========================================
 
+// fileInfoToMetadata converts os.FileInfo to FileMetadata for tests (uses ModTime)
+func fileInfoToMetadata(fi os.FileInfo) FileMetadata {
+	return FileMetadata{
+		FileInfo: fi,
+		DateTime: fi.ModTime(),
+		GPS:      nil,
+		Source:   DateSourceModTime,
+	}
+}
+
 // createTestFile creates a test file with a specific modification time
-func createTestFile(t *testing.T, dir, name string, modTime time.Time) string {
+func createTestFile(t *testing.T, dir, name string, modTime time.Time) {
 	t.Helper()
 
 	path := filepath.Join(dir, name)
@@ -32,8 +42,6 @@ func createTestFile(t *testing.T, dir, name string, modTime time.Time) string {
 	if err := os.Chtimes(path, modTime, modTime); err != nil {
 		t.Fatalf("failed to set file time: %v", err)
 	}
-
-	return path
 }
 
 // createTestDataset creates the test dataset similar to mktest.sh
@@ -290,156 +298,6 @@ func TestFindOrCreateFolder(t *testing.T) {
 	})
 }
 
-func TestFindOrCreateDatedFolder(t *testing.T) {
-	t.Run("create new dated folder", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		testTime := time.Date(2024, 1, 15, 14, 30, 0, 0, time.Local)
-		testFile := createTestFile(t, tmpDir, "test.jpg", testTime)
-
-		fi, err := os.Stat(testFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Initialize cache
-		directories = make(map[string]string)
-
-		delta := 1 * time.Hour
-		folderName, err := findOrCreateDatedFolder(tmpDir, fi, delta, false)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		expectedName := testTime.Round(delta).Format(dateFormatPattern)
-		if folderName != expectedName {
-			t.Errorf("got %q, want %q", folderName, expectedName)
-		}
-
-		// Verify folder was created
-		fullPath := filepath.Join(tmpDir, folderName)
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			t.Error("dated folder was not created")
-		}
-	})
-
-	t.Run("reuse existing dated folder", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		testTime := time.Date(2024, 2, 20, 10, 0, 0, 0, time.Local)
-		delta := 1 * time.Hour
-		expectedName := testTime.Round(delta).Format(dateFormatPattern)
-
-		// Create dated folder manually
-		datedPath := filepath.Join(tmpDir, expectedName)
-		if err := os.Mkdir(datedPath, 0755); err != nil {
-			t.Fatal(err)
-		}
-
-		// Initialize cache
-		directories = make(map[string]string)
-		directories[expectedName] = expectedName
-
-		// Create file with same date
-		testFile := createTestFile(t, tmpDir, "test.jpg", testTime)
-		fi, err := os.Stat(testFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		folderName, err := findOrCreateDatedFolder(tmpDir, fi, delta, false)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		if folderName != expectedName {
-			t.Errorf("got %q, want %q", folderName, expectedName)
-		}
-	})
-
-	t.Run("dry run mode", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		testTime := time.Date(2024, 3, 10, 9, 0, 0, 0, time.Local)
-		testFile := createTestFile(t, tmpDir, "test.jpg", testTime)
-
-		fi, err := os.Stat(testFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		delta := 1 * time.Hour
-		folderName, err := findOrCreateDatedFolder(tmpDir, fi, delta, true)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		expectedName := testTime.Round(delta).Format(dateFormatPattern)
-		if folderName != expectedName {
-			t.Errorf("got %q, want %q", folderName, expectedName)
-		}
-
-		// In dry run, folder should NOT be created
-		fullPath := filepath.Join(tmpDir, folderName)
-		if _, err := os.Stat(fullPath); !os.IsNotExist(err) {
-			t.Error("folder should not exist in dry run mode")
-		}
-	})
-
-	t.Run("different delta values", func(t *testing.T) {
-		tests := []struct {
-			name     string
-			time     time.Time
-			delta    time.Duration
-			expected string
-		}{
-			{
-				"1 hour delta",
-				time.Date(2024, 4, 5, 14, 45, 0, 0, time.Local),
-				1 * time.Hour,
-				time.Date(2024, 4, 5, 15, 0, 0, 0, time.Local).Format(dateFormatPattern),
-			},
-			{
-				"30 minute delta",
-				time.Date(2024, 4, 5, 14, 20, 0, 0, time.Local),
-				30 * time.Minute,
-				time.Date(2024, 4, 5, 14, 30, 0, 0, time.Local).Format(dateFormatPattern),
-			},
-			{
-				"2 hour delta",
-				time.Date(2024, 4, 5, 13, 30, 0, 0, time.Local),
-				2 * time.Hour,
-				time.Date(2024, 4, 5, 14, 0, 0, 0, time.Local).Format(dateFormatPattern),
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				// Each subtest gets its own temp directory
-				tmpDir := t.TempDir()
-
-				// Initialize cache for each subtest
-				directories = make(map[string]string)
-
-				testFile := createTestFile(t, tmpDir, "test.jpg", tt.time)
-				fi, err := os.Stat(testFile)
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				folderName, err := findOrCreateDatedFolder(tmpDir, fi, tt.delta, false)
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-
-				if folderName != tt.expected {
-					t.Errorf("got %q, want %q", folderName, tt.expected)
-				}
-			})
-		}
-	})
-}
-
 func TestMoveFile(t *testing.T) {
 	t.Run("move file successfully", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -511,99 +369,272 @@ func TestMoveFile(t *testing.T) {
 }
 
 // ========================================
-// Tests for Directory Listing (75% coverage)
+// Tests for New Gap-Based Algorithm (v3.0.0)
 // ========================================
 
-func TestListDirectories(t *testing.T) {
-	t.Run("find valid dated directories", func(t *testing.T) {
+func TestCollectMediaFiles(t *testing.T) {
+	t.Run("collect all media files", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 1, 15, 11, 30, 0, 0, time.Local)
 
-		// Create valid dated folders
-		validDirs := []string{
-			"2024 - 0115 - 1400",
-			"2024 - 0116 - 0900",
-			"2024 - 0120 - 1600",
+		// Create media files
+		mediaFiles := []string{"photo1.jpg", "photo2.NEF", "video.mov", "photo3.heic"}
+		for _, file := range mediaFiles {
+			createTestFile(t, tmpDir, file, baseTime)
 		}
 
-		for _, dir := range validDirs {
-			dirPath := filepath.Join(tmpDir, dir)
-			if err := os.Mkdir(dirPath, 0755); err != nil {
-				t.Fatal(err)
-			}
+		// Create non-media files
+		createTestFile(t, tmpDir, "readme.txt", baseTime)
+		createTestFile(t, tmpDir, "data.csv", baseTime)
+
+		// Create subdirectory (should be ignored)
+		subDir := filepath.Join(tmpDir, "subfolder")
+		if err := os.Mkdir(subDir, 0755); err != nil {
+			t.Fatal(err)
 		}
 
-		// Create invalid folders
-		invalidDirs := []string{"random", "not-a-date", "raw", "TEST"}
-		for _, dir := range invalidDirs {
-			dirPath := filepath.Join(tmpDir, dir)
-			if err := os.Mkdir(dirPath, 0755); err != nil {
-				t.Fatal(err)
-			}
-		}
-
-		// Initialize cache
-		directories = make(map[string]string)
-
-		// Execute listDirectories
-		err := listDirectories(tmpDir)
+		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
+		files, err := collectMediaFilesWithMetadata(cfg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify only valid directories are cached
-		if len(directories) != len(validDirs) {
-			t.Errorf("expected %d directories, got %d", len(validDirs), len(directories))
-		}
-
-		for _, dir := range validDirs {
-			if _, ok := directories[dir]; !ok {
-				t.Errorf("valid directory %q not found in cache", dir)
-			}
-		}
-
-		// Verify invalid directories are NOT cached
-		for _, dir := range invalidDirs {
-			if _, ok := directories[dir]; ok {
-				t.Errorf("invalid directory %q should not be in cache", dir)
-			}
+		if len(files) != len(mediaFiles) {
+			t.Errorf("expected %d media files, got %d", len(mediaFiles), len(files))
 		}
 	})
 
 	t.Run("empty directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		directories = make(map[string]string)
 
-		err := listDirectories(tmpDir)
+		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
+		files, err := collectMediaFilesWithMetadata(cfg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if len(directories) != 0 {
-			t.Errorf("expected empty cache, got %d entries", len(directories))
+		if len(files) != 0 {
+			t.Errorf("expected no files, got %d", len(files))
 		}
 	})
 
-	t.Run("directory with only files", func(t *testing.T) {
+	t.Run("only non-media files", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 1, 15, 11, 30, 0, 0, time.Local)
 
-		// Create some files (not directories)
-		files := []string{"photo.jpg", "video.mov", "2024 - 0101 - 1000.txt"}
-		for _, file := range files {
-			path := filepath.Join(tmpDir, file)
-			if err := os.WriteFile(path, []byte("test"), 0644); err != nil {
-				t.Fatal(err)
-			}
-		}
+		createTestFile(t, tmpDir, "readme.txt", baseTime)
+		createTestFile(t, tmpDir, "data.json", baseTime)
 
-		directories = make(map[string]string)
-
-		err := listDirectories(tmpDir)
+		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
+		files, err := collectMediaFilesWithMetadata(cfg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if len(directories) != 0 {
-			t.Errorf("expected no directories, got %d", len(directories))
+		if len(files) != 0 {
+			t.Errorf("expected no media files, got %d", len(files))
+		}
+	})
+}
+
+func TestSortFilesByDateTime(t *testing.T) {
+	t.Run("sort files chronologically", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create files with different timestamps (in non-chronological order)
+		times := []struct {
+			name string
+			time time.Time
+		}{
+			{"file3.jpg", time.Date(2024, 1, 15, 14, 0, 0, 0, time.Local)},
+			{"file1.jpg", time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)},
+			{"file2.jpg", time.Date(2024, 1, 15, 12, 0, 0, 0, time.Local)},
+		}
+
+		var files []FileMetadata
+		for _, f := range times {
+			createTestFile(t, tmpDir, f.name, f.time)
+			fi, _ := os.Stat(filepath.Join(tmpDir, f.name))
+			files = append(files, fileInfoToMetadata(fi))
+		}
+
+		sortFilesByDateTime(files)
+
+		// Verify order
+		expectedOrder := []string{"file1.jpg", "file2.jpg", "file3.jpg"}
+		for i, expected := range expectedOrder {
+			if files[i].FileInfo.Name() != expected {
+				t.Errorf("position %d: expected %q, got %q", i, expected, files[i].FileInfo.Name())
+			}
+		}
+	})
+
+	t.Run("same timestamp sorts by name", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		sameTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+		names := []string{"charlie.jpg", "alice.jpg", "bob.jpg"}
+
+		var files []FileMetadata
+		for _, name := range names {
+			createTestFile(t, tmpDir, name, sameTime)
+			fi, _ := os.Stat(filepath.Join(tmpDir, name))
+			files = append(files, fileInfoToMetadata(fi))
+		}
+
+		sortFilesByDateTime(files)
+
+		// Should be sorted alphabetically
+		expectedOrder := []string{"alice.jpg", "bob.jpg", "charlie.jpg"}
+		for i, expected := range expectedOrder {
+			if files[i].FileInfo.Name() != expected {
+				t.Errorf("position %d: expected %q, got %q", i, expected, files[i].FileInfo.Name())
+			}
+		}
+	})
+}
+
+func TestGroupFilesByGaps(t *testing.T) {
+	t.Run("single group continuous", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+
+		var files []FileMetadata
+		for i := 0; i < 5; i++ {
+			fileTime := baseTime.Add(time.Duration(i*10) * time.Minute)
+			name := fmt.Sprintf("photo%d.jpg", i)
+			createTestFile(t, tmpDir, name, fileTime)
+			fi, _ := os.Stat(filepath.Join(tmpDir, name))
+			files = append(files, fileInfoToMetadata(fi))
+		}
+
+		sortFilesByDateTime(files)
+		groups := groupFilesByGaps(files, 30*time.Minute)
+
+		if len(groups) != 1 {
+			t.Errorf("expected 1 group, got %d", len(groups))
+		}
+
+		if len(groups[0].files) != 5 {
+			t.Errorf("expected 5 files in group, got %d", len(groups[0].files))
+		}
+
+		expectedFolder := baseTime.Format(dateFormatPattern)
+		if groups[0].folderName != expectedFolder {
+			t.Errorf("expected folder %q, got %q", expectedFolder, groups[0].folderName)
+		}
+	})
+
+	t.Run("two groups with large gap", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+
+		// First group: 10:00, 10:10, 10:20
+		// Gap of 2 hours
+		// Second group: 12:30, 12:40
+
+		times := []time.Duration{0, 10 * time.Minute, 20 * time.Minute, 2*time.Hour + 30*time.Minute, 2*time.Hour + 40*time.Minute}
+		var files []FileMetadata
+		for i, offset := range times {
+			fileTime := baseTime.Add(offset)
+			name := fmt.Sprintf("photo%d.jpg", i)
+			createTestFile(t, tmpDir, name, fileTime)
+			fi, _ := os.Stat(filepath.Join(tmpDir, name))
+			files = append(files, fileInfoToMetadata(fi))
+		}
+
+		sortFilesByDateTime(files)
+		groups := groupFilesByGaps(files, 1*time.Hour)
+
+		if len(groups) != 2 {
+			t.Errorf("expected 2 groups, got %d", len(groups))
+		}
+
+		if len(groups[0].files) != 3 {
+			t.Errorf("expected 3 files in first group, got %d", len(groups[0].files))
+		}
+
+		if len(groups[1].files) != 2 {
+			t.Errorf("expected 2 files in second group, got %d", len(groups[1].files))
+		}
+	})
+
+	t.Run("all files separated", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+
+		// Each file is 2 hours apart (delta = 1h)
+		var files []FileMetadata
+		for i := 0; i < 3; i++ {
+			fileTime := baseTime.Add(time.Duration(i*2) * time.Hour)
+			name := fmt.Sprintf("photo%d.jpg", i)
+			createTestFile(t, tmpDir, name, fileTime)
+			fi, _ := os.Stat(filepath.Join(tmpDir, name))
+			files = append(files, fileInfoToMetadata(fi))
+		}
+
+		sortFilesByDateTime(files)
+		groups := groupFilesByGaps(files, 1*time.Hour)
+
+		if len(groups) != 3 {
+			t.Errorf("expected 3 groups (each file separate), got %d", len(groups))
+		}
+
+		for i, group := range groups {
+			if len(group.files) != 1 {
+				t.Errorf("group %d: expected 1 file, got %d", i, len(group.files))
+			}
+		}
+	})
+
+	t.Run("gap exactly equal to delta", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+
+		// Two files exactly 1h apart (delta = 1h)
+		times := []time.Duration{0, 1 * time.Hour}
+		var files []FileMetadata
+		for i, offset := range times {
+			fileTime := baseTime.Add(offset)
+			name := fmt.Sprintf("photo%d.jpg", i)
+			createTestFile(t, tmpDir, name, fileTime)
+			fi, _ := os.Stat(filepath.Join(tmpDir, name))
+			files = append(files, fileInfoToMetadata(fi))
+		}
+
+		sortFilesByDateTime(files)
+		groups := groupFilesByGaps(files, 1*time.Hour)
+
+		// With gap <= delta, should be same group
+		if len(groups) != 1 {
+			t.Errorf("expected 1 group (gap <= delta), got %d", len(groups))
+		}
+	})
+
+	t.Run("single file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
+
+		createTestFile(t, tmpDir, "photo.jpg", baseTime)
+		fi, _ := os.Stat(filepath.Join(tmpDir, "photo.jpg"))
+		files := []FileMetadata{fileInfoToMetadata(fi)}
+
+		groups := groupFilesByGaps(files, 1*time.Hour)
+
+		if len(groups) != 1 {
+			t.Errorf("expected 1 group, got %d", len(groups))
+		}
+
+		if len(groups[0].files) != 1 {
+			t.Errorf("expected 1 file in group, got %d", len(groups[0].files))
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		groups := groupFilesByGaps([]FileMetadata{}, 1*time.Hour)
+
+		if groups != nil {
+			t.Errorf("expected nil for empty input, got %d groups", len(groups))
 		}
 	})
 }
@@ -624,10 +655,10 @@ func TestSplit_Integration(t *testing.T) {
 			name   string
 			offset time.Duration
 		}{
-			{"photo1.jpg", 0},                            // 11:30 -> rounds to 12:00
-			{"photo2.jpg", 20 * time.Minute},             // 11:50 -> rounds to 12:00 (same folder)
-			{"photo3.jpg", 2 * time.Hour},                // 13:30 -> rounds to 14:00 (new folder)
-			{"video1.mov", 2*time.Hour + 15*time.Minute}, // 13:45 -> rounds to 14:00 (same as photo3)
+			{"photo1.jpg", 0},                            // 11:30 (first file of group 1)
+			{"photo2.jpg", 20 * time.Minute},             // 11:50 (gap: 20min <= 1h, same group)
+			{"photo3.jpg", 2 * time.Hour},                // 13:30 (gap: 1h40 > 1h, new group, first file)
+			{"video1.mov", 2*time.Hour + 15*time.Minute}, // 13:45 (gap: 15min <= 1h, same group as photo3)
 		}
 
 		for _, f := range files {
@@ -649,10 +680,10 @@ func TestSplit_Integration(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify folders were created
+		// Verify folders were created (named after first file of each group)
 		expectedFolders := []string{
-			"2024 - 0115 - 1200",
-			"2024 - 0115 - 1400",
+			"2024 - 0115 - 1130", // photo1.jpg (11:30)
+			"2024 - 0115 - 1330", // photo3.jpg (13:30)
 		}
 
 		for _, folder := range expectedFolders {
@@ -664,10 +695,10 @@ func TestSplit_Integration(t *testing.T) {
 
 		// Verify files were moved
 		movedFiles := []string{
-			filepath.Join(tmpDir, "2024 - 0115 - 1200", "photo1.jpg"),
-			filepath.Join(tmpDir, "2024 - 0115 - 1200", "photo2.jpg"),
-			filepath.Join(tmpDir, "2024 - 0115 - 1400", "photo3.jpg"),
-			filepath.Join(tmpDir, "2024 - 0115 - 1400", movFolderName, "video1.mov"),
+			filepath.Join(tmpDir, "2024 - 0115 - 1130", "photo1.jpg"),
+			filepath.Join(tmpDir, "2024 - 0115 - 1130", "photo2.jpg"),
+			filepath.Join(tmpDir, "2024 - 0115 - 1330", "photo3.jpg"),
+			filepath.Join(tmpDir, "2024 - 0115 - 1330", movFolderName, "video1.mov"),
 		}
 
 		for _, path := range movedFiles {
@@ -730,11 +761,11 @@ func TestSplit_Integration(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify structure (14:30 rounds to 15:00 with 1h delta)
+		// Verify structure (folder named after first file: 14:30)
 		expectedPaths := []string{
-			filepath.Join(tmpDir, "2024 - 0201 - 1500", "photo.jpg"),
-			filepath.Join(tmpDir, "2024 - 0201 - 1500", rawFolderName, "photo.nef"),
-			filepath.Join(tmpDir, "2024 - 0201 - 1500", movFolderName, "video.mov"),
+			filepath.Join(tmpDir, "2024 - 0201 - 1430", "photo.jpg"),
+			filepath.Join(tmpDir, "2024 - 0201 - 1430", rawFolderName, "photo.nef"),
+			filepath.Join(tmpDir, "2024 - 0201 - 1430", movFolderName, "video.mov"),
 		}
 
 		for _, path := range expectedPaths {
@@ -766,11 +797,11 @@ func TestSplit_Integration(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// All files should be in the same folder without subfolders (11:30 rounds to 12:00)
+		// All files should be in the same folder without subfolders (named after first file: 11:30)
 		expectedPaths := []string{
-			filepath.Join(tmpDir, "2024 - 0301 - 1200", "photo.jpg"),
-			filepath.Join(tmpDir, "2024 - 0301 - 1200", "photo.cr2"),
-			filepath.Join(tmpDir, "2024 - 0301 - 1200", "video.mp4"),
+			filepath.Join(tmpDir, "2024 - 0301 - 1130", "photo.jpg"),
+			filepath.Join(tmpDir, "2024 - 0301 - 1130", "photo.cr2"),
+			filepath.Join(tmpDir, "2024 - 0301 - 1130", "video.mp4"),
 		}
 
 		for _, path := range expectedPaths {
@@ -780,7 +811,7 @@ func TestSplit_Integration(t *testing.T) {
 		}
 
 		// Verify no raw/mov subfolders were created
-		datedFolder := filepath.Join(tmpDir, "2024 - 0301 - 1200")
+		datedFolder := filepath.Join(tmpDir, "2024 - 0301 - 1130")
 		entries, err := os.ReadDir(datedFolder)
 		if err != nil {
 			t.Fatal(err)
@@ -814,40 +845,35 @@ func TestSplit_Integration(t *testing.T) {
 
 		year := time.Now().Year()
 
-		// Verify expected structure
-		// 08:35 → folder 0900, 09:35 → 1000 (>1h from 08:35), 10:35 → 1100 (>1h from 09:35), 11:35 → 1200 (>1h from 10:35), 11:44 → 1200 (<1h from 11:35)
-		expectedFiles := map[string][]string{
-			fmt.Sprintf("%d - 0216 - 0900", year): {"PHOTO_01.JPG"},
-			fmt.Sprintf("%d - 0216 - 1000", year): {"PHOTO_02.JPG"},
-			fmt.Sprintf("%d - 0216 - 1100", year): {"PHOTO_03.JPG"},
-			fmt.Sprintf("%d - 0216 - 1200", year): {"PHOTO_04.JPG"},
+		// With gap-based detection and delta=1h:
+		// 08:35 → first file of group
+		// 09:35 → gap = 1h (<=delta), same group
+		// 10:35 → gap = 1h (<=delta), same group
+		// 11:35 → gap = 1h (<=delta), same group
+		// 11:44 → gap = 9min (<=delta), same group
+		// All media files in ONE group named after first file: "2025 - 0216 - 0835"
+
+		groupFolder := fmt.Sprintf("%d - 0216 - 0835", year)
+
+		// Verify main folder exists
+		folderPath := filepath.Join(tmpDir, groupFolder)
+		if _, err := os.Stat(folderPath); os.IsNotExist(err) {
+			t.Fatalf("expected folder %q not created", groupFolder)
 		}
 
-		for folder, files := range expectedFiles {
-			folderPath := filepath.Join(tmpDir, folder)
-
-			// Folder might not exist if no files were moved there
-			if len(files) == 0 {
-				continue
-			}
-
-			if _, err := os.Stat(folderPath); os.IsNotExist(err) {
-				t.Errorf("expected folder %q not created", folder)
-				continue
-			}
-
-			for _, file := range files {
-				filePath := filepath.Join(folderPath, file)
-				if _, err := os.Stat(filePath); os.IsNotExist(err) {
-					t.Errorf("expected file %q not found in %q", file, folder)
-				}
+		// Verify JPEG files in main folder
+		jpegFiles := []string{"PHOTO_01.JPG", "PHOTO_02.JPG", "PHOTO_03.JPG", "PHOTO_04.JPG"}
+		for _, file := range jpegFiles {
+			filePath := filepath.Join(folderPath, file)
+			if _, err := os.Stat(filePath); os.IsNotExist(err) {
+				t.Errorf("expected file %q not found in %q", file, groupFolder)
 			}
 		}
 
 		// Verify RAW files are in raw subfolder
 		rawPaths := []string{
-			filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1100", year), rawFolderName, "PHOTO_03.CR2"),
-			filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1200", year), rawFolderName, "PHOTO_04.NEF"),
+			filepath.Join(tmpDir, groupFolder, rawFolderName, "PHOTO_03.CR2"),
+			filepath.Join(tmpDir, groupFolder, rawFolderName, "PHOTO_04.NEF"),
 		}
 
 		for _, path := range rawPaths {
@@ -857,7 +883,7 @@ func TestSplit_Integration(t *testing.T) {
 		}
 
 		// Verify movie is in mov subfolder
-		movPath := filepath.Join(tmpDir, fmt.Sprintf("%d - 0216 - 1200", year), movFolderName, "PHOTO_04.MOV")
+		movPath := filepath.Join(tmpDir, groupFolder, movFolderName, "PHOTO_04.MOV")
 		if _, err := os.Stat(movPath); os.IsNotExist(err) {
 			t.Error("expected movie file PHOTO_04.MOV not found in mov subfolder")
 		}
@@ -909,8 +935,8 @@ func TestSplit_Integration(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify all files were processed (12:30 rounds to 13:00)
-		datedFolder := "2024 - 0501 - 1400"
+		// Folder named after first file (sorted alphabetically when ModTime equal): 13:30
+		datedFolder := "2024 - 0501 - 1330"
 
 		// Standard images should be in root
 		standardImages := []string{"photo.heic", "photo.heif", "photo.webp", "photo.avif"}
@@ -1027,8 +1053,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected BasePath %q, got %q", basePath, cfg.BasePath)
 	}
 
-	if cfg.Delta != 1*time.Hour {
-		t.Errorf("expected Delta 1h, got %v", cfg.Delta)
+	if cfg.Delta != 30*time.Minute {
+		t.Errorf("expected Delta 30min, got %v", cfg.Delta)
 	}
 
 	if cfg.NoMoveMovie {
@@ -1041,5 +1067,9 @@ func TestDefaultConfig(t *testing.T) {
 
 	if cfg.DryRun {
 		t.Error("expected DryRun to be false")
+	}
+
+	if !cfg.UseEXIF {
+		t.Error("expected UseEXIF to be true")
 	}
 }
