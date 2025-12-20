@@ -21,6 +21,13 @@ Picsplit uses EXIF metadata when available to determine file dates:
 - **Videos**: MP4/MOV creation_time metadata
 - **Fallback**: File modification time (ModTime)
 
+**GPS location clustering (v2.3.0+):**
+When GPS mode is enabled (`--gps`), picsplit groups files by geographic location first, 
+then by time within each location. Files are clustered using a DBSCAN-like algorithm 
+with a configurable radius (default: 2km). Each location cluster gets a folder named 
+after its centroid coordinates (e.g., `48.8566N-2.3522E`), containing time-based 
+subfolders. Files without GPS coordinates are placed in a special `NoLocation/` folder.
+
 **Gap-based event detection (v2.1.0+):**
 Files are sorted chronologically and grouped by temporal gaps. When the time gap 
 between two consecutive files exceeds the configured `delta` (default: 30 minutes), 
@@ -41,13 +48,20 @@ Supported extension are the following :
 
 ## CLI Parameters
 
+### Core Options
 * `--use-exif` : use EXIF metadata for dates (default: true, set to false to use ModTime only)
-* `-nomvmov` : do not move movies in a separate `mov` folder
-* `-nomvraw` : do not move raw files in a separate `raw` folder
-* `-delta` : change the default (30min) delta time between 2 files to be split
-* `-dryrun` : print the modification to be done without really moving the files
-* `-v` : verbose
-* `-h` : help
+* `-delta` / `-d` : change the default (30min) delta time between 2 files to be split
+* `-dryrun` / `-dr` : print the modification to be done without really moving the files
+* `-v` / `--verbose` : enable verbose/debug logging
+* `-h` / `--help` : show help
+
+### GPS Location Clustering (v2.3.0+)
+* `--gps` / `-g` : enable GPS location clustering (default: false, opt-in feature)
+* `--gps-radius` / `-gr` : GPS clustering radius in meters (default: 2000m = 2km)
+
+### File Organization
+* `-nomvmov` / `-nmm` : do not move movies in a separate `mov` folder
+* `-nomvraw` / `-nmr` : do not move raw files in a separate `raw` folder
 
 ## Results
 
@@ -155,13 +169,82 @@ git push origin v2.0.1 # Triggers automatic release via GitHub Actions
 
 ## Usage
 
-    picsplit -v -dryrun ./data
-    picsplit -v ./data
-    picsplit -v -nomvmov -nomvraw ./data
+### Basic usage (time-only mode)
+```bash
+# Dry run to preview changes
+picsplit -v -dryrun ./data
+
+# Organize photos by time (default 30min delta)
+picsplit -v ./data
+
+# Don't separate movies and raw files into subfolders
+picsplit -v -nomvmov -nomvraw ./data
+
+# Custom time delta (1 hour)
+picsplit -v --delta 1h ./data
+```
+
+### GPS location clustering (v2.3.0+)
+```bash
+# Enable GPS clustering with default 2km radius
+picsplit --gps ./photos
+
+# Custom 5km radius for larger geographic areas
+picsplit --gps --gps-radius 5000 ./photos
+
+# GPS clustering with custom time delta
+picsplit --gps --delta 1h ./photos
+
+# Dry run to preview GPS clustering structure
+picsplit --gps -v -dryrun ./photos
+
+# Combine with EXIF and other options
+picsplit --gps --use-exif --delta 2h ./photos
+```
+
+### Example output structures
+
+**Time-only mode** (default):
+```
+data/
+├── 2025 - 0616 - 0945/
+│   ├── photo1.jpg
+│   ├── photo2.jpg
+│   └── mov/
+│       └── video1.mov
+└── 2025 - 0616 - 1445/
+    └── photo3.jpg
+```
+
+**GPS clustering mode** (`--gps`):
+```
+photos/
+├── 48.8566N-2.3522E/          # Paris location cluster
+│   ├── 2025 - 0616 - 0945/    # Morning photos
+│   │   ├── photo1.jpg
+│   │   └── photo2.jpg
+│   └── 2025 - 0616 - 1430/    # Afternoon photos
+│       └── photo3.jpg
+├── 51.5074N-0.1278W/          # London location cluster
+│   └── 2025 - 0617 - 1000/
+│       └── photo4.jpg
+└── NoLocation/                 # Files without GPS
+    └── 2025 - 0618 - 1200/
+        └── scan1.jpg
+```
 
 ## Roadmap
 
-### Version 2.2.0 (Current - December 2024)
+### Version 2.3.0 (Current - December 2024)
+
+- [X] GPS location clustering (group by location + time)
+- [X] DBSCAN-like spatial clustering algorithm
+- [X] Configurable clustering radius (default: 2km)
+- [X] NoLocation folder for files without GPS coordinates
+- [X] Haversine distance calculation for accurate geographic distances
+- [X] 100% test coverage for GPS modules
+
+### Version 2.2.0 (December 2024)
 
 - [X] EXIF metadata support for photos (DateTimeOriginal)
 - [X] Video metadata support (MP4/MOV creation_time)
@@ -198,7 +281,8 @@ git push origin v2.0.1 # Triggers automatic release via GitHub Actions
 
 ### Next releases
 
-- [ ] Version 2.3.0: GPS location clustering (group by location + time)
-- [ ] merge folder command (case split too much)
-- [ ] add a console GUI
+- [ ] Version 2.4.0: Merge folder command (case split too much)
+- [ ] Version 3.0.0: Interactive console GUI with TUI
+- [ ] Duplicate detection and handling
+- [ ] Photo similarity detection (group similar photos together)
 

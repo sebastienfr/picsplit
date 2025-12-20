@@ -253,11 +253,66 @@ func Split(cfg *Config) error {
 
 	logrus.Infof("found %d media files", len(mediaFiles))
 
-	// 2. Trier chronologiquement
-	sortFilesByDateTime(mediaFiles)
+	var groups []fileGroup
 
-	// 3. Grouper par gaps
-	groups := groupFilesByGaps(mediaFiles, cfg.Delta)
+	// 2. GPS clustering mode ou mode temporel classique
+	if cfg.UseGPS {
+		// GPS clustering: location FIRST, then time within each location
+		locationClusters, filesWithoutGPS := ClusterByLocation(mediaFiles, cfg.GPSRadius)
+
+		logrus.Infof("GPS clustering: %d location clusters, %d files without GPS",
+			len(locationClusters), len(filesWithoutGPS))
+
+		// Traiter chaque cluster de localisation
+		for _, cluster := range locationClusters {
+			locationName := FormatLocationName(cluster.Centroid)
+			logrus.Debugf("processing location cluster: %s (%d files)", locationName, len(cluster.Files))
+
+			// Grouper par temps dans cette localisation
+			timeGroups := GroupLocationByTime(cluster, cfg.Delta)
+			logrus.Debugf("location %s split into %d time groups", locationName, len(timeGroups))
+
+			// Créer fileGroup pour chaque groupe temporel
+			for _, timeGroup := range timeGroups {
+				if len(timeGroup) == 0 {
+					continue
+				}
+
+				folderName := filepath.Join(locationName, timeGroup[0].DateTime.Format(dateFormatPattern))
+				groups = append(groups, fileGroup{
+					folderName: folderName,
+					firstFile:  timeGroup[0],
+					files:      timeGroup,
+				})
+			}
+		}
+
+		// Traiter fichiers sans GPS dans dossier "NoLocation"
+		if len(filesWithoutGPS) > 0 {
+			logrus.Infof("processing %d files without GPS in '%s' folder", len(filesWithoutGPS), GetNoLocationFolderName())
+
+			// Trier et grouper par temps
+			sortFilesByDateTime(filesWithoutGPS)
+			noGPSGroups := groupFilesByGaps(filesWithoutGPS, cfg.Delta)
+
+			for _, noGPSGroup := range noGPSGroups {
+				folderName := filepath.Join(GetNoLocationFolderName(), noGPSGroup.folderName)
+				groups = append(groups, fileGroup{
+					folderName: folderName,
+					firstFile:  noGPSGroup.firstFile,
+					files:      noGPSGroup.files,
+				})
+			}
+		}
+	} else {
+		// Mode temporel classique (backward compatible)
+		// 2. Trier chronologiquement
+		sortFilesByDateTime(mediaFiles)
+
+		// 3. Grouper par gaps
+		groups = groupFilesByGaps(mediaFiles, cfg.Delta)
+	}
+
 	logrus.Infof("detected %d event groups (delta: %v)", len(groups), cfg.Delta)
 
 	// 4. Traiter chaque groupe
