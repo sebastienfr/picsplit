@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -258,10 +259,10 @@ func TestCollectFilesRecursive(t *testing.T) {
 
 	// Verify all files are present (not checking order)
 	expectedFiles := map[string]bool{
-		"photo1.jpg":    false,
-		"photo2.jpeg":   false,
-		"mov/video.mov": false,
-		"raw/photo.nef": false,
+		"photo1.jpg":                      false,
+		"photo2.jpeg":                     false,
+		filepath.Join("mov", "video.mov"): false,
+		filepath.Join("raw", "photo.nef"): false,
 	}
 
 	for _, file := range files {
@@ -716,6 +717,9 @@ func TestMerge_ErrorTargetNotDirectory(t *testing.T) {
 }
 
 func TestMerge_ErrorMovingFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping test on Windows (permissions work differently)")
+	}
 	if os.Getuid() == 0 {
 		t.Skip("Skipping test when running as root (can't test permission errors)")
 	}
