@@ -50,8 +50,8 @@ const (
 // fileGroup représente un groupe de fichiers détecté comme un événement
 type fileGroup struct {
 	folderName string
-	firstFile  os.FileInfo
-	files      []os.FileInfo
+	firstFile  FileMetadata
+	files      []FileMetadata
 }
 
 var (
@@ -90,14 +90,15 @@ var (
 	ErrInvalidDelta = errors.New("delta must be positive")
 )
 
-// collectMediaFiles récupère tous les fichiers médias (photos et vidéos)
-func collectMediaFiles(basePath string) ([]os.FileInfo, error) {
-	entries, err := os.ReadDir(basePath)
+// collectMediaFilesWithMetadata récupère tous les fichiers médias avec leurs métadonnées EXIF/vidéo
+func collectMediaFilesWithMetadata(cfg *Config) ([]FileMetadata, error) {
+	entries, err := os.ReadDir(cfg.BasePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	var mediaFiles []os.FileInfo
+	var mediaFiles []FileMetadata
+	var exifFailCount int
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -110,30 +111,65 @@ func collectMediaFiles(basePath string) ([]os.FileInfo, error) {
 			continue
 		}
 
-		if isPicture(info) || isMovie(info) {
-			mediaFiles = append(mediaFiles, info)
-		} else {
+		if !isPicture(info) && !isMovie(info) {
 			logrus.Debugf("%s has unknown extension, skipping", info.Name())
+			continue
+		}
+
+		filePath := filepath.Join(cfg.BasePath, info.Name())
+
+		// Extraire métadonnées (EXIF/vidéo)
+		var metadata *FileMetadata
+		if cfg.UseEXIF {
+			metadata, err = ExtractMetadata(filePath)
+			if err != nil || metadata.Source == DateSourceModTime {
+				logrus.Debugf("failed to extract metadata for %s, using ModTime", info.Name())
+				exifFailCount++
+			}
+		} else {
+			// Mode sans EXIF : utiliser directement ModTime
+			metadata = &FileMetadata{
+				FileInfo: info,
+				DateTime: info.ModTime(),
+				GPS:      nil,
+				Source:   DateSourceModTime,
+			}
+		}
+
+		if metadata != nil {
+			mediaFiles = append(mediaFiles, *metadata)
+		}
+	}
+
+	// Mode strict : si au moins un fichier sans EXIF valide → fallback tous sur ModTime
+	if cfg.UseEXIF && exifFailCount > 0 {
+		logrus.Warnf("EXIF validation failed for %d/%d files, using file modification times for all files",
+			exifFailCount, len(mediaFiles))
+
+		for i := range mediaFiles {
+			mediaFiles[i].DateTime = mediaFiles[i].FileInfo.ModTime()
+			mediaFiles[i].Source = DateSourceModTime
+			mediaFiles[i].GPS = nil
 		}
 	}
 
 	return mediaFiles, nil
 }
 
-// sortFilesByModTime trie les fichiers par date de modification croissante
-func sortFilesByModTime(files []os.FileInfo) {
+// sortFilesByDateTime trie les fichiers par date/heure croissante (EXIF ou ModTime)
+func sortFilesByDateTime(files []FileMetadata) {
 	sort.Slice(files, func(i, j int) bool {
-		// Si les ModTime sont égaux, trier par nom (déterministe)
-		if files[i].ModTime().Equal(files[j].ModTime()) {
-			return files[i].Name() < files[j].Name()
+		// Si les DateTime sont égaux, trier par nom (déterministe)
+		if files[i].DateTime.Equal(files[j].DateTime) {
+			return files[i].FileInfo.Name() < files[j].FileInfo.Name()
 		}
-		return files[i].ModTime().Before(files[j].ModTime())
+		return files[i].DateTime.Before(files[j].DateTime)
 	})
 }
 
 // groupFilesByGaps regroupe les fichiers par gaps temporels
 // Un nouveau groupe démarre quand gap > delta
-func groupFilesByGaps(files []os.FileInfo, delta time.Duration) []fileGroup {
+func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 	if len(files) == 0 {
 		return nil
 	}
@@ -141,31 +177,31 @@ func groupFilesByGaps(files []os.FileInfo, delta time.Duration) []fileGroup {
 	var groups []fileGroup
 
 	currentGroup := fileGroup{
-		files:     []os.FileInfo{files[0]},
+		files:     []FileMetadata{files[0]},
 		firstFile: files[0],
 	}
 
 	for i := 1; i < len(files); i++ {
-		gap := files[i].ModTime().Sub(files[i-1].ModTime())
+		gap := files[i].DateTime.Sub(files[i-1].DateTime)
 
 		if gap <= delta {
 			// Gap acceptable, continuer le groupe
 			currentGroup.files = append(currentGroup.files, files[i])
 		} else {
 			// Gap trop grand, finaliser groupe actuel
-			currentGroup.folderName = currentGroup.firstFile.ModTime().Format(dateFormatPattern)
+			currentGroup.folderName = currentGroup.firstFile.DateTime.Format(dateFormatPattern)
 			groups = append(groups, currentGroup)
 
 			// Démarrer nouveau groupe
 			currentGroup = fileGroup{
-				files:     []os.FileInfo{files[i]},
+				files:     []FileMetadata{files[i]},
 				firstFile: files[i],
 			}
 		}
 	}
 
 	// Ajouter dernier groupe
-	currentGroup.folderName = currentGroup.firstFile.ModTime().Format(dateFormatPattern)
+	currentGroup.folderName = currentGroup.firstFile.DateTime.Format(dateFormatPattern)
 	groups = append(groups, currentGroup)
 
 	return groups
@@ -183,12 +219,12 @@ func processGroup(cfg *Config, group fileGroup) error {
 
 	// Traiter chaque fichier
 	for _, file := range group.files {
-		if isPicture(file) {
-			if err := processPicture(cfg, file, group.folderName); err != nil {
+		if isPicture(file.FileInfo) {
+			if err := processPicture(cfg, file.FileInfo, group.folderName); err != nil {
 				return err
 			}
-		} else if isMovie(file) {
-			if err := processMovie(cfg, file, group.folderName); err != nil {
+		} else if isMovie(file.FileInfo) {
+			if err := processMovie(cfg, file.FileInfo, group.folderName); err != nil {
 				return err
 			}
 		}
@@ -204,8 +240,8 @@ func Split(cfg *Config) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// 1. Collecter fichiers média
-	mediaFiles, err := collectMediaFiles(cfg.BasePath)
+	// 1. Collecter fichiers média avec métadonnées
+	mediaFiles, err := collectMediaFilesWithMetadata(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to collect media files: %w", err)
 	}
@@ -218,7 +254,7 @@ func Split(cfg *Config) error {
 	logrus.Infof("found %d media files", len(mediaFiles))
 
 	// 2. Trier chronologiquement
-	sortFilesByModTime(mediaFiles)
+	sortFilesByDateTime(mediaFiles)
 
 	// 3. Grouper par gaps
 	groups := groupFilesByGaps(mediaFiles, cfg.Delta)

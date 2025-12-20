@@ -12,6 +12,16 @@ import (
 // Test Helpers
 // ========================================
 
+// fileInfoToMetadata converts os.FileInfo to FileMetadata for tests (uses ModTime)
+func fileInfoToMetadata(fi os.FileInfo) FileMetadata {
+	return FileMetadata{
+		FileInfo: fi,
+		DateTime: fi.ModTime(),
+		GPS:      nil,
+		Source:   DateSourceModTime,
+	}
+}
+
 // createTestFile creates a test file with a specific modification time
 func createTestFile(t *testing.T, dir, name string, modTime time.Time) {
 	t.Helper()
@@ -383,7 +393,8 @@ func TestCollectMediaFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		files, err := collectMediaFiles(tmpDir)
+		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
+		files, err := collectMediaFilesWithMetadata(cfg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -396,7 +407,8 @@ func TestCollectMediaFiles(t *testing.T) {
 	t.Run("empty directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		files, err := collectMediaFiles(tmpDir)
+		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
+		files, err := collectMediaFilesWithMetadata(cfg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -413,7 +425,8 @@ func TestCollectMediaFiles(t *testing.T) {
 		createTestFile(t, tmpDir, "readme.txt", baseTime)
 		createTestFile(t, tmpDir, "data.json", baseTime)
 
-		files, err := collectMediaFiles(tmpDir)
+		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
+		files, err := collectMediaFilesWithMetadata(cfg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -424,7 +437,7 @@ func TestCollectMediaFiles(t *testing.T) {
 	})
 }
 
-func TestSortFilesByModTime(t *testing.T) {
+func TestSortFilesByDateTime(t *testing.T) {
 	t.Run("sort files chronologically", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
@@ -438,20 +451,20 @@ func TestSortFilesByModTime(t *testing.T) {
 			{"file2.jpg", time.Date(2024, 1, 15, 12, 0, 0, 0, time.Local)},
 		}
 
-		var files []os.FileInfo
+		var files []FileMetadata
 		for _, f := range times {
 			createTestFile(t, tmpDir, f.name, f.time)
 			fi, _ := os.Stat(filepath.Join(tmpDir, f.name))
-			files = append(files, fi)
+			files = append(files, fileInfoToMetadata(fi))
 		}
 
-		sortFilesByModTime(files)
+		sortFilesByDateTime(files)
 
 		// Verify order
 		expectedOrder := []string{"file1.jpg", "file2.jpg", "file3.jpg"}
 		for i, expected := range expectedOrder {
-			if files[i].Name() != expected {
-				t.Errorf("position %d: expected %q, got %q", i, expected, files[i].Name())
+			if files[i].FileInfo.Name() != expected {
+				t.Errorf("position %d: expected %q, got %q", i, expected, files[i].FileInfo.Name())
 			}
 		}
 	})
@@ -462,20 +475,20 @@ func TestSortFilesByModTime(t *testing.T) {
 		sameTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
 		names := []string{"charlie.jpg", "alice.jpg", "bob.jpg"}
 
-		var files []os.FileInfo
+		var files []FileMetadata
 		for _, name := range names {
 			createTestFile(t, tmpDir, name, sameTime)
 			fi, _ := os.Stat(filepath.Join(tmpDir, name))
-			files = append(files, fi)
+			files = append(files, fileInfoToMetadata(fi))
 		}
 
-		sortFilesByModTime(files)
+		sortFilesByDateTime(files)
 
 		// Should be sorted alphabetically
 		expectedOrder := []string{"alice.jpg", "bob.jpg", "charlie.jpg"}
 		for i, expected := range expectedOrder {
-			if files[i].Name() != expected {
-				t.Errorf("position %d: expected %q, got %q", i, expected, files[i].Name())
+			if files[i].FileInfo.Name() != expected {
+				t.Errorf("position %d: expected %q, got %q", i, expected, files[i].FileInfo.Name())
 			}
 		}
 	})
@@ -486,16 +499,16 @@ func TestGroupFilesByGaps(t *testing.T) {
 		tmpDir := t.TempDir()
 		baseTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
 
-		var files []os.FileInfo
+		var files []FileMetadata
 		for i := 0; i < 5; i++ {
 			fileTime := baseTime.Add(time.Duration(i*10) * time.Minute)
 			name := fmt.Sprintf("photo%d.jpg", i)
 			createTestFile(t, tmpDir, name, fileTime)
 			fi, _ := os.Stat(filepath.Join(tmpDir, name))
-			files = append(files, fi)
+			files = append(files, fileInfoToMetadata(fi))
 		}
 
-		sortFilesByModTime(files)
+		sortFilesByDateTime(files)
 		groups := groupFilesByGaps(files, 30*time.Minute)
 
 		if len(groups) != 1 {
@@ -521,16 +534,16 @@ func TestGroupFilesByGaps(t *testing.T) {
 		// Second group: 12:30, 12:40
 
 		times := []time.Duration{0, 10 * time.Minute, 20 * time.Minute, 2*time.Hour + 30*time.Minute, 2*time.Hour + 40*time.Minute}
-		var files []os.FileInfo
+		var files []FileMetadata
 		for i, offset := range times {
 			fileTime := baseTime.Add(offset)
 			name := fmt.Sprintf("photo%d.jpg", i)
 			createTestFile(t, tmpDir, name, fileTime)
 			fi, _ := os.Stat(filepath.Join(tmpDir, name))
-			files = append(files, fi)
+			files = append(files, fileInfoToMetadata(fi))
 		}
 
-		sortFilesByModTime(files)
+		sortFilesByDateTime(files)
 		groups := groupFilesByGaps(files, 1*time.Hour)
 
 		if len(groups) != 2 {
@@ -551,16 +564,16 @@ func TestGroupFilesByGaps(t *testing.T) {
 		baseTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.Local)
 
 		// Each file is 2 hours apart (delta = 1h)
-		var files []os.FileInfo
+		var files []FileMetadata
 		for i := 0; i < 3; i++ {
 			fileTime := baseTime.Add(time.Duration(i*2) * time.Hour)
 			name := fmt.Sprintf("photo%d.jpg", i)
 			createTestFile(t, tmpDir, name, fileTime)
 			fi, _ := os.Stat(filepath.Join(tmpDir, name))
-			files = append(files, fi)
+			files = append(files, fileInfoToMetadata(fi))
 		}
 
-		sortFilesByModTime(files)
+		sortFilesByDateTime(files)
 		groups := groupFilesByGaps(files, 1*time.Hour)
 
 		if len(groups) != 3 {
@@ -580,16 +593,16 @@ func TestGroupFilesByGaps(t *testing.T) {
 
 		// Two files exactly 1h apart (delta = 1h)
 		times := []time.Duration{0, 1 * time.Hour}
-		var files []os.FileInfo
+		var files []FileMetadata
 		for i, offset := range times {
 			fileTime := baseTime.Add(offset)
 			name := fmt.Sprintf("photo%d.jpg", i)
 			createTestFile(t, tmpDir, name, fileTime)
 			fi, _ := os.Stat(filepath.Join(tmpDir, name))
-			files = append(files, fi)
+			files = append(files, fileInfoToMetadata(fi))
 		}
 
-		sortFilesByModTime(files)
+		sortFilesByDateTime(files)
 		groups := groupFilesByGaps(files, 1*time.Hour)
 
 		// With gap <= delta, should be same group
@@ -604,7 +617,7 @@ func TestGroupFilesByGaps(t *testing.T) {
 
 		createTestFile(t, tmpDir, "photo.jpg", baseTime)
 		fi, _ := os.Stat(filepath.Join(tmpDir, "photo.jpg"))
-		files := []os.FileInfo{fi}
+		files := []FileMetadata{fileInfoToMetadata(fi)}
 
 		groups := groupFilesByGaps(files, 1*time.Hour)
 
@@ -618,7 +631,7 @@ func TestGroupFilesByGaps(t *testing.T) {
 	})
 
 	t.Run("empty input", func(t *testing.T) {
-		groups := groupFilesByGaps([]os.FileInfo{}, 1*time.Hour)
+		groups := groupFilesByGaps([]FileMetadata{}, 1*time.Hour)
 
 		if groups != nil {
 			t.Errorf("expected nil for empty input, got %d groups", len(groups))
@@ -1054,5 +1067,9 @@ func TestDefaultConfig(t *testing.T) {
 
 	if cfg.DryRun {
 		t.Error("expected DryRun to be false")
+	}
+
+	if !cfg.UseEXIF {
+		t.Error("expected UseEXIF to be true")
 	}
 }

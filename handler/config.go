@@ -13,6 +13,7 @@ type Config struct {
 	NoMoveMovie bool
 	NoMoveRaw   bool
 	DryRun      bool
+	UseEXIF     bool
 }
 
 // Validate checks if the configuration is valid
@@ -49,5 +50,6 @@ func DefaultConfig(basePath string) *Config {
 		NoMoveMovie: false,
 		NoMoveRaw:   false,
 		DryRun:      false,
+		UseEXIF:     true,
 	}
 }

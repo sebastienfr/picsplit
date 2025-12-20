@@ -14,13 +14,18 @@ Apache License version 2.0.
 Picture splitter (`picsplit`) is meant to process digital camera DCIM folder
 in order to split contiguous files (pictures and movies) in dedicated subfolders.
 
+**Smart date detection (v2.2.0+):**
+Picsplit uses EXIF metadata when available to determine file dates:
+- **Photos**: EXIF DateTimeOriginal field
+- **RAW files**: Shares EXIF from associated JPEG (e.g., PHOTO_01.NEF → PHOTO_01.JPG)
+- **Videos**: MP4/MOV creation_time metadata
+- **Fallback**: File modification time (ModTime)
+
 **Gap-based event detection (v2.1.0+):**
 Files are sorted chronologically and grouped by temporal gaps. When the time gap 
 between two consecutive files exceeds the configured `delta` (default: 30 minutes), 
 a new folder is created. Each folder is named after the exact timestamp of its 
 first file (pattern: YYYY - MMDD - hhmm).
-
-The file modification time is used as the grouping parameter.
 
 Supported extension are the following :
 
@@ -36,6 +41,7 @@ Supported extension are the following :
 
 ## CLI Parameters
 
+* `--use-exif` : use EXIF metadata for dates (default: true, set to false to use ModTime only)
 * `-nomvmov` : do not move movies in a separate `mov` folder
 * `-nomvraw` : do not move raw files in a separate `raw` folder
 * `-delta` : change the default (30min) delta time between 2 files to be split
@@ -155,7 +161,16 @@ git push origin v2.0.1 # Triggers automatic release via GitHub Actions
 
 ## Roadmap
 
-### Version 2.1.0 (Current - December 2024)
+### Version 2.2.0 (Current - December 2024)
+
+- [X] EXIF metadata support for photos (DateTimeOriginal)
+- [X] Video metadata support (MP4/MOV creation_time)
+- [X] RAW+JPEG pairing (share EXIF from associated JPEG)
+- [X] Strict fallback mode (all files use ModTime if any lacks EXIF)
+- [X] GPS coordinate extraction (preparation for location clustering)
+- [X] Date validation (1990 < date < now+1day)
+
+### Version 2.1.0 (December 2024)
 
 - [X] Gap-based event detection algorithm
 - [X] Improved grouping of continuous photo sessions
@@ -183,7 +198,7 @@ git push origin v2.0.1 # Triggers automatic release via GitHub Actions
 
 ### Next releases
 
+- [ ] Version 2.3.0: GPS location clustering (group by location + time)
 - [ ] merge folder command (case split too much)
-- [ ] add an option to read dating data from EXIF instead of file dates
 - [ ] add a console GUI
 
