@@ -20,6 +20,12 @@ type Config struct {
 	UseEXIF     bool
 	UseGPS      bool
 	GPSRadius   float64 // Rayon en mètres pour le clustering GPS
+
+	// Custom extensions (v2.5.0+)
+	// These are ADDITIVE to the default extensions
+	CustomPhotoExts []string // Additional photo extensions (e.g., ["png", "gif", "bmp"])
+	CustomVideoExts []string // Additional video extensions (e.g., ["mkv", "mpeg", "wmv"])
+	CustomRawExts   []string // Additional RAW extensions (e.g., ["rwx", "srw", "3fr"])
 }
 
 // Validate checks if the configuration is valid

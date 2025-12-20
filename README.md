@@ -26,7 +26,9 @@ When GPS mode is enabled (`--gps`), picsplit groups files by geographic location
 then by time within each location. Files are clustered using a DBSCAN-like algorithm 
 with a configurable radius (default: 2km). Each location cluster gets a folder named 
 after its centroid coordinates (e.g., `48.8566N-2.3522E`), containing time-based 
-subfolders. Files without GPS coordinates are placed in a special `NoLocation/` folder.
+subfolders. Files without GPS coordinates are handled intelligently:
+- If location clusters exist: files without GPS go into `NoLocation/` folder
+- If no location clusters exist (all files lack GPS): time-based folders created at root
 
 **Gap-based event detection (v2.1.0+):**
 Files are sorted chronologically and grouped by temporal gaps. When the time gap 
@@ -39,6 +41,36 @@ Supported extension are the following :
 - Image : JPG, JPEG, HEIC, HEIF, WebP, AVIF
 - Raw : NEF, NRW, CR2, CRW, RW2, DNG, ARW, ORF, RAF
 - Movie : MOV, AVI, MP4
+
+### Custom File Extensions (v2.5.0+)
+
+You can add custom file extensions at runtime without recompiling:
+
+```bash
+# Add custom photo extension (.png)
+picsplit --photo-ext png ./data
+
+# Add custom video extension (.mkv)
+picsplit --video-ext mkv ./data
+
+# Add custom RAW extension (.rwx)
+picsplit --raw-ext rwx ./data
+
+# Combine multiple custom extensions (comma-separated)
+picsplit --photo-ext png,bmp --video-ext mkv,webm --raw-ext rwx ./data
+
+# Works with merge command too
+picsplit merge --photo-ext png folder1 folder2 merged
+```
+
+**Important notes:**
+- Custom extensions are **additive**: they extend the default list (defaults are always included)
+- Case-insensitive: `.PNG`, `.png`, `.Png` are all treated the same
+- Extensions are validated: max 8 characters, alphanumeric only
+- **Flag order matters**: flags must come **before** positional arguments
+  - ✅ Correct: `picsplit --photo-ext png ./data`
+  - ❌ Incorrect: `picsplit ./data --photo-ext png` (flag ignored)
+- Short flags available: `-pext`, `-vext`, `-rext`
 
 ## Technology stack
 
@@ -62,6 +94,11 @@ Supported extension are the following :
 ### File Organization
 * `-nomvmov` / `-nmm` : do not move movies in a separate `mov` folder
 * `-nomvraw` / `-nmr` : do not move raw files in a separate `raw` folder
+
+### Custom Extensions (v2.5.0+)
+* `--photo-ext` / `-pext` : add custom photo extensions (comma-separated, e.g., `png,bmp`)
+* `--video-ext` / `-vext` : add custom video extensions (comma-separated, e.g., `mkv,webm`)
+* `--raw-ext` / `-rext` : add custom RAW extensions (comma-separated, e.g., `rwx,rw3`)
 
 ## Results
 
@@ -239,7 +276,7 @@ data/
     └── photo3.jpg
 ```
 
-**GPS clustering mode** (`--gps`):
+**GPS clustering mode** (`--gps`) with mixed GPS data:
 ```
 photos/
 ├── 48.8566N-2.3522E/          # Paris location cluster
@@ -251,14 +288,24 @@ photos/
 ├── 51.5074N-0.1278W/          # London location cluster
 │   └── 2025 - 0617 - 1000/
 │       └── photo4.jpg
-└── NoLocation/                 # Files without GPS
+└── NoLocation/                 # Files without GPS (only when location clusters exist)
     └── 2025 - 0618 - 1200/
         └── scan1.jpg
 ```
 
+**GPS mode with all files lacking GPS**:
+```
+photos/
+├── 2025 - 0616 - 0945/    # Time-based folders at root (no NoLocation/)
+│   ├── photo1.jpg
+│   └── photo2.jpg
+└── 2025 - 0616 - 1430/
+    └── photo3.jpg
+```
+
 ## Roadmap
 
-### Version 2.3.0 (Current - December 2024)
+### Version 2.3.0 (December 2024)
 
 - [X] GPS location clustering (group by location + time)
 - [X] DBSCAN-like spatial clustering algorithm
@@ -310,6 +357,16 @@ photos/
 - [X] Media folder validation (only media files + mov/raw subdirs)
 - [X] Structure preservation during merge
 - [X] Automatic source folder cleanup
+
+### Version 2.5.0 (Current - December 2024)
+
+- [X] Custom file extension support via CLI flags
+- [X] `--photo-ext`, `--video-ext`, `--raw-ext` flags for runtime extension configuration
+- [X] Extensions validation (max 8 chars, alphanumeric only)
+- [X] Case-insensitive extension matching
+- [X] Additive approach (custom extensions extend defaults)
+- [X] Works for both split and merge commands
+- [X] Comprehensive test coverage for extension handling
 
 ### Next releases
 

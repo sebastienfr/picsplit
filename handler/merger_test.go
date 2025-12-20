@@ -70,7 +70,8 @@ func TestIsMediaFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isMediaFile(tt.filename)
+			ctx := newDefaultExecutionContext()
+			result := ctx.isMediaFile(tt.filename)
 			if result != tt.expected {
 				t.Errorf("isMediaFile(%q) = %v, want %v", tt.filename, result, tt.expected)
 			}
@@ -191,7 +192,8 @@ func TestIsMediaFolder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			folderPath := tt.setupFunc(t)
-			err := isMediaFolder(folderPath)
+			ctx := newDefaultExecutionContext()
+			err := isMediaFolderWithContext(folderPath, ctx)
 
 			if tt.wantError {
 				if err == nil {
@@ -295,9 +297,9 @@ func TestValidateMergeFolders_Success(t *testing.T) {
 
 	target := filepath.Join(tmpDir, "merged")
 
-	err := validateMergeFolders([]string{source1, source2}, target)
+	err := validateMergeFolders([]string{source1, source2}, target, newDefaultExecutionContext())
 	if err != nil {
-		t.Errorf("validateMergeFolders() unexpected error: %v", err)
+		t.Errorf("validateMergeFolders(, newDefaultExecutionContext()) unexpected error: %v", err)
 	}
 }
 
@@ -310,9 +312,9 @@ func TestValidateMergeFolders_NonMediaFolderRejected(t *testing.T) {
 
 	target := filepath.Join(tmpDir, "merged")
 
-	err := validateMergeFolders([]string{gpsFolder}, target)
+	err := validateMergeFolders([]string{gpsFolder}, target, newDefaultExecutionContext())
 	if err == nil {
-		t.Error("validateMergeFolders() should reject non-media folder (GPS folder with nested time folders)")
+		t.Error("validateMergeFolders(, newDefaultExecutionContext()) should reject non-media folder (GPS folder with nested time folders)")
 	}
 
 	// Check error message
@@ -328,16 +330,16 @@ func TestValidateMergeFolders_SourceNotExist(t *testing.T) {
 	nonExistent := filepath.Join(tmpDir, "does-not-exist")
 	target := filepath.Join(tmpDir, "merged")
 
-	err := validateMergeFolders([]string{nonExistent}, target)
+	err := validateMergeFolders([]string{nonExistent}, target, newDefaultExecutionContext())
 	if err == nil {
-		t.Error("validateMergeFolders() should error when source doesn't exist")
+		t.Error("validateMergeFolders(, newDefaultExecutionContext()) should error when source doesn't exist")
 	}
 }
 
 func TestValidateMergeFolders_InsufficientArguments(t *testing.T) {
-	err := validateMergeFolders([]string{}, "target")
+	err := validateMergeFolders([]string{}, "target", newDefaultExecutionContext())
 	if err == nil {
-		t.Error("validateMergeFolders() should error with no sources")
+		t.Error("validateMergeFolders(, newDefaultExecutionContext()) should error with no sources")
 	}
 }
 
@@ -351,9 +353,9 @@ func TestValidateMergeFolders_FolderWithNonMediaFile(t *testing.T) {
 
 	target := filepath.Join(tmpDir, "merged")
 
-	err := validateMergeFolders([]string{source}, target)
+	err := validateMergeFolders([]string{source}, target, newDefaultExecutionContext())
 	if err == nil {
-		t.Error("validateMergeFolders() should reject folder with non-media files")
+		t.Error("validateMergeFolders(, newDefaultExecutionContext()) should reject folder with non-media files")
 	}
 
 	expectedMsg := "non-media file"

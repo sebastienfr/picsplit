@@ -62,7 +62,8 @@ type FileMetadata struct {
 }
 
 // ExtractMetadata extrait toutes les métadonnées d'un fichier (date et GPS si disponible)
-func ExtractMetadata(filePath string) (*FileMetadata, error) {
+// Utilise le contexte d'exécution pour respecter les extensions personnalisées
+func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, error) {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
@@ -75,10 +76,10 @@ func ExtractMetadata(filePath string) (*FileMetadata, error) {
 		Source:   DateSourceModTime,
 	}
 
-	// Déterminer le type de fichier
-	if isPicture(info) {
+	// Déterminer le type de fichier en utilisant le contexte
+	if ctx.isPhoto(info.Name()) {
 		// Pour les fichiers RAW, chercher le JPG associé
-		if isRaw(info) {
+		if ctx.isRaw(info.Name()) {
 			jpegPath, err := findAssociatedJPEG(filePath)
 			if err == nil {
 				filePath = jpegPath
@@ -102,7 +103,7 @@ func ExtractMetadata(filePath string) (*FileMetadata, error) {
 			metadata.GPS = gps
 			logrus.Debugf("extracted GPS for %s: %.4f,%.4f", info.Name(), gps.Lat, gps.Lon)
 		}
-	} else if isMovie(info) {
+	} else if ctx.isMovie(info.Name()) {
 		// Extraire métadonnées vidéo
 		dateTime, err := extractVideoMetadata(filePath)
 		if err == nil && isValidDateTime(dateTime) {

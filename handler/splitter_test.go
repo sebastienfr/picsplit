@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -115,7 +116,8 @@ func TestIsMovie(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			got := isMovie(fi)
+			ctx := newDefaultExecutionContext()
+			got := ctx.isMovie(fi.Name())
 			if got != tt.want {
 				t.Errorf("isMovie(%q) = %v, want %v", tt.filename, got, tt.want)
 			}
@@ -176,7 +178,8 @@ func TestIsPicture(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			got := isPicture(fi)
+			ctx := newDefaultExecutionContext()
+			got := ctx.isPhoto(fi.Name())
 			if got != tt.want {
 				t.Errorf("isPicture(%q) = %v, want %v", tt.filename, got, tt.want)
 			}
@@ -225,7 +228,8 @@ func TestIsRaw(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			got := isRaw(fi)
+			ctx := newDefaultExecutionContext()
+			got := ctx.isRaw(fi.Name())
 			if got != tt.want {
 				t.Errorf("isRaw(%q) = %v, want %v", tt.filename, got, tt.want)
 			}
@@ -394,7 +398,7 @@ func TestCollectMediaFiles(t *testing.T) {
 		}
 
 		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
-		files, err := collectMediaFilesWithMetadata(cfg)
+		files, err := collectMediaFilesWithMetadata(cfg, newDefaultExecutionContext())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -408,7 +412,7 @@ func TestCollectMediaFiles(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
-		files, err := collectMediaFilesWithMetadata(cfg)
+		files, err := collectMediaFilesWithMetadata(cfg, newDefaultExecutionContext())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -426,7 +430,7 @@ func TestCollectMediaFiles(t *testing.T) {
 		createTestFile(t, tmpDir, "data.json", baseTime)
 
 		cfg := &Config{BasePath: tmpDir, UseEXIF: false}
-		files, err := collectMediaFilesWithMetadata(cfg)
+		files, err := collectMediaFilesWithMetadata(cfg, newDefaultExecutionContext())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -1108,14 +1112,11 @@ func TestSplit_NoMediaFiles(t *testing.T) {
 func TestSplit_GPSMode_AllFilesWithGPS(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create test files with GPS coordinates
+	// Create test files without GPS coordinates
 	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
 
-	// Paris location (close together)
 	createTestFile(t, tmpDir, "photo1.jpg", baseTime)
 	createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(10*time.Minute))
-
-	// London location (far from Paris)
 	createTestFile(t, tmpDir, "photo3.jpg", baseTime.Add(2*time.Hour))
 
 	cfg := &Config{
@@ -1131,16 +1132,33 @@ func TestSplit_GPSMode_AllFilesWithGPS(t *testing.T) {
 
 	// Note: This test will process files but won't create GPS clusters
 	// because we can't inject GPS coordinates without EXIF
-	// It will fall into "NoLocation" folder
+	// When NO location clusters exist, files should be at root (no NoLocation folder)
 	err := Split(cfg)
 	if err != nil {
 		t.Fatalf("Split() GPS mode error: %v", err)
 	}
 
-	// Verify NoLocation folder was created
+	// Verify NoLocation folder was NOT created (all files lack GPS = no segregation needed)
 	noLocFolder := filepath.Join(tmpDir, GetNoLocationFolderName())
-	if _, err := os.Stat(noLocFolder); os.IsNotExist(err) {
-		t.Error("NoLocation folder should be created when files lack GPS")
+	if _, err := os.Stat(noLocFolder); !os.IsNotExist(err) {
+		t.Error("NoLocation folder should NOT be created when ALL files lack GPS (no location clusters)")
+	}
+
+	// Verify time-based folders were created at root instead
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to read directory: %v", err)
+	}
+
+	foundTimeFolders := 0
+	for _, entry := range entries {
+		if entry.IsDir() && strings.Contains(entry.Name(), "2024 - ") {
+			foundTimeFolders++
+		}
+	}
+
+	if foundTimeFolders == 0 {
+		t.Error("Expected time-based folders at root when all files lack GPS")
 	}
 }
 
@@ -1177,9 +1195,9 @@ func TestCollectMediaFilesWithMetadata_EmptyDirectory(t *testing.T) {
 		UseEXIF:  true,
 	}
 
-	files, err := collectMediaFilesWithMetadata(cfg)
+	files, err := collectMediaFilesWithMetadata(cfg, newDefaultExecutionContext())
 	if err != nil {
-		t.Fatalf("collectMediaFilesWithMetadata() error: %v", err)
+		t.Fatalf("collectMediaFilesWithMetadata(, newDefaultExecutionContext()) error: %v", err)
 	}
 
 	if len(files) != 0 {
@@ -1398,9 +1416,9 @@ func TestCollectMediaFilesWithMetadata_OnlyNonMedia(t *testing.T) {
 		UseEXIF:  true,
 	}
 
-	files, err := collectMediaFilesWithMetadata(cfg)
+	files, err := collectMediaFilesWithMetadata(cfg, newDefaultExecutionContext())
 	if err != nil {
-		t.Fatalf("collectMediaFilesWithMetadata() error: %v", err)
+		t.Fatalf("collectMediaFilesWithMetadata(, newDefaultExecutionContext()) error: %v", err)
 	}
 
 	if len(files) != 0 {

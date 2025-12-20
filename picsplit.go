@@ -4,7 +4,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sebastienfr/picsplit/handler"
@@ -13,13 +15,6 @@ import (
 )
 
 var (
-	// Version is the version of the software
-	Version string
-	// BuildStmp is the build date
-	BuildStmp string
-	// GitHash is the git build hash
-	GitHash string
-
 	// path -path : the path to the folder containing the files to be processed
 	path = "."
 
@@ -47,6 +42,15 @@ var (
 	// gpsRadius -gps-radius : GPS clustering radius in meters
 	gpsRadius = 2000.0
 
+	// customPhotoExts -pext : additional photo extensions (v2.5.0+)
+	customPhotoExts string
+
+	// customVideoExts -vext : additional video extensions (v2.5.0+)
+	customVideoExts string
+
+	// customRawExts -rext : additional RAW extensions (v2.5.0+)
+	customRawExts string
+
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
 		"X19fIHxfX3wgX19fXyAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
@@ -73,6 +77,33 @@ const (
 	flagVerbose = "verbose"
 )
 
+// parseExtensions parses comma-separated extension string into slice
+// Returns error if any extension is invalid
+func parseExtensions(extString string) ([]string, error) {
+	if extString == "" {
+		return nil, nil
+	}
+
+	parts := strings.Split(extString, ",")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		// Validate extension
+		if err := handler.ValidateExtension(part); err != nil {
+			return nil, err
+		}
+
+		result = append(result, part)
+	}
+
+	return result, nil
+}
+
 // InitLog initializes the logrus logger
 func InitLog(verbose bool) {
 	logrus.SetFormatter(&logrus.TextFormatter{
@@ -89,6 +120,57 @@ func InitLog(verbose bool) {
 	}
 }
 
+// getBuildInfo returns version information from build metadata
+func getBuildInfo() (version, buildTime, gitHash string) {
+	version = "2.5.0-dev"
+	buildTime = time.Now().Format(time.RFC3339)
+	gitHash = "unknown"
+
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+
+	// Try to get version from VCS (Git tag)
+	// Go 1.18+ embeds VCS info automatically
+	var vcsRevision, vcsTime, vcsModified string
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			vcsRevision = setting.Value
+			if len(vcsRevision) > 7 {
+				gitHash = vcsRevision[:7] // Short hash
+			} else {
+				gitHash = vcsRevision
+			}
+		case "vcs.time":
+			vcsTime = setting.Value
+			buildTime = vcsTime
+		case "vcs.modified":
+			vcsModified = setting.Value
+		}
+	}
+
+	// Get version from module info (set by Git tags or go.mod)
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		// Clean up pseudo-versions (e.g., v0.0.0-20220101120000-abc123def456)
+		// Keep only semantic version tags (e.g., v2.5.0)
+		if strings.HasPrefix(info.Main.Version, "v") && !strings.Contains(info.Main.Version, "-0.") {
+			version = strings.TrimPrefix(info.Main.Version, "v")
+		} else {
+			// Development build, keep custom version
+			version = "2.5.0-dev"
+		}
+	}
+
+	// Add dirty flag if repository has uncommitted changes
+	if vcsModified == "true" {
+		gitHash += "-dirty"
+	}
+
+	return version, buildTime, gitHash
+}
+
 func main() {
 	// customize version flag
 	cli.VersionFlag = &cli.BoolFlag{
@@ -96,17 +178,20 @@ func main() {
 		Aliases: []string{"V"},
 	}
 
-	// new app
-	timeStmp, err := strconv.Atoi(BuildStmp)
+	// Get build information
+	version, buildTime, gitHash := getBuildInfo()
+
+	// Parse build time
+	buildTimeObj, err := time.Parse(time.RFC3339, buildTime)
 	if err != nil {
-		timeStmp = 0
+		buildTimeObj = time.Now()
 	}
 
 	app := &cli.App{
 		Name:  appName,
 		Usage: appUsage,
-		Version: Version + ", build on " + time.Unix(int64(timeStmp), 0).String() +
-			", git hash " + GitHash,
+		Version: version + ", build on " + buildTimeObj.Format("2006-01-02 15:04:05 -0700 MST") +
+			", git hash " + gitHash,
 		Authors: []*cli.Author{
 			{Name: authorName},
 		},
@@ -147,6 +232,21 @@ func main() {
 						Aliases: []string{"v"},
 						Usage:   "Print detailed logs",
 					},
+					&cli.StringFlag{
+						Name:    "photo-ext",
+						Aliases: []string{"pext"},
+						Usage:   "Additional photo extensions (comma-separated, e.g., 'png,gif,bmp'). Max 8 chars, alphanumeric only",
+					},
+					&cli.StringFlag{
+						Name:    "video-ext",
+						Aliases: []string{"vext"},
+						Usage:   "Additional video extensions (comma-separated, e.g., 'mkv,mpeg,wmv'). Max 8 chars, alphanumeric only",
+					},
+					&cli.StringFlag{
+						Name:    "raw-ext",
+						Aliases: []string{"rext"},
+						Usage:   "Additional RAW extensions (comma-separated, e.g., 'rwx,srw,3fr'). Max 8 chars, alphanumeric only",
+					},
 				},
 				Action: func(c *cli.Context) error {
 					// Init logger
@@ -165,19 +265,47 @@ func main() {
 					targetFolder := args[len(args)-1]
 					sourceFolders := args[:len(args)-1]
 
+					// Parse custom extensions from command flags
+					photoExts, err := parseExtensions(c.String("photo-ext"))
+					if err != nil {
+						return fmt.Errorf("invalid photo extensions: %w", err)
+					}
+
+					videoExts, err := parseExtensions(c.String("video-ext"))
+					if err != nil {
+						return fmt.Errorf("invalid video extensions: %w", err)
+					}
+
+					rawExts, err := parseExtensions(c.String("raw-ext"))
+					if err != nil {
+						return fmt.Errorf("invalid RAW extensions: %w", err)
+					}
+
 					// Debug info
 					logrus.Debugf("Merge configuration:")
 					logrus.Debugf("  Sources: %v", sourceFolders)
 					logrus.Debugf("  Target: %s", targetFolder)
 					logrus.Debugf("  Force: %t", c.Bool(flagForce))
 					logrus.Debugf("  DryRun: %t", c.Bool(flagDryRun))
+					if len(photoExts) > 0 {
+						logrus.Debugf("  Custom photo ext: %s", strings.Join(photoExts, ", "))
+					}
+					if len(videoExts) > 0 {
+						logrus.Debugf("  Custom video ext: %s", strings.Join(videoExts, ", "))
+					}
+					if len(rawExts) > 0 {
+						logrus.Debugf("  Custom raw ext: %s", strings.Join(rawExts, ", "))
+					}
 
 					// Execute merge
 					cfg := &handler.MergeConfig{
-						SourceFolders: sourceFolders,
-						TargetFolder:  targetFolder,
-						Force:         c.Bool(flagForce),
-						DryRun:        c.Bool(flagDryRun),
+						SourceFolders:   sourceFolders,
+						TargetFolder:    targetFolder,
+						Force:           c.Bool(flagForce),
+						DryRun:          c.Bool(flagDryRun),
+						CustomPhotoExts: photoExts,
+						CustomVideoExts: videoExts,
+						CustomRawExts:   rawExts,
 					}
 
 					return handler.Merge(cfg)
@@ -238,6 +366,24 @@ func main() {
 			Destination: &gpsRadius,
 			Usage:       "GPS clustering radius in meters (default: 2000m = 2km)",
 		},
+		&cli.StringFlag{
+			Name:        "photo-ext",
+			Aliases:     []string{"pext"},
+			Destination: &customPhotoExts,
+			Usage:       "Additional photo extensions (comma-separated, e.g., 'png,gif,bmp'). Max 8 chars, alphanumeric only",
+		},
+		&cli.StringFlag{
+			Name:        "video-ext",
+			Aliases:     []string{"vext"},
+			Destination: &customVideoExts,
+			Usage:       "Additional video extensions (comma-separated, e.g., 'mkv,mpeg,wmv'). Max 8 chars, alphanumeric only",
+		},
+		&cli.StringFlag{
+			Name:        "raw-ext",
+			Aliases:     []string{"rext"},
+			Destination: &customRawExts,
+			Usage:       "Additional RAW extensions (comma-separated, e.g., 'rwx,srw,3fr'). Max 8 chars, alphanumeric only",
+		},
 	}
 
 	// main action
@@ -255,6 +401,22 @@ func main() {
 			return fmt.Errorf("wrong count of argument %d, a unique path is required", c.NArg())
 		}
 
+		// Parse custom extensions
+		photoExts, err := parseExtensions(customPhotoExts)
+		if err != nil {
+			return fmt.Errorf("invalid photo extensions: %w", err)
+		}
+
+		videoExts, err := parseExtensions(customVideoExts)
+		if err != nil {
+			return fmt.Errorf("invalid video extensions: %w", err)
+		}
+
+		rawExts, err := parseExtensions(customRawExts)
+		if err != nil {
+			return fmt.Errorf("invalid RAW extensions: %w", err)
+		}
+
 		logrus.Debug("* ----------------------------------------------------- *")
 		logrus.Debugf("| path                 : %s", path)
 		logrus.Debugf("| delta duration (min) : %0.f", durationDelta.Minutes())
@@ -265,6 +427,15 @@ func main() {
 		logrus.Debugf("| use EXIF             : %t", useEXIF)
 		logrus.Debugf("| use GPS clustering   : %t", useGPS)
 		logrus.Debugf("| GPS radius (meters)  : %.0f", gpsRadius)
+		if len(photoExts) > 0 {
+			logrus.Debugf("| custom photo ext     : %s", strings.Join(photoExts, ", "))
+		}
+		if len(videoExts) > 0 {
+			logrus.Debugf("| custom video ext     : %s", strings.Join(videoExts, ", "))
+		}
+		if len(rawExts) > 0 {
+			logrus.Debugf("| custom raw ext       : %s", strings.Join(rawExts, ", "))
+		}
 		logrus.Debug("* ----------------------------------------------------- *")
 
 		// check path exists
@@ -278,14 +449,17 @@ func main() {
 		}
 
 		cfg := &handler.Config{
-			BasePath:    path,
-			Delta:       durationDelta,
-			NoMoveMovie: noMoveMovie,
-			NoMoveRaw:   noMoveRaw,
-			DryRun:      dryRun,
-			UseEXIF:     useEXIF,
-			UseGPS:      useGPS,
-			GPSRadius:   gpsRadius,
+			BasePath:        path,
+			Delta:           durationDelta,
+			NoMoveMovie:     noMoveMovie,
+			NoMoveRaw:       noMoveRaw,
+			DryRun:          dryRun,
+			UseEXIF:         useEXIF,
+			UseGPS:          useGPS,
+			GPSRadius:       gpsRadius,
+			CustomPhotoExts: photoExts,
+			CustomVideoExts: videoExts,
+			CustomRawExts:   rawExts,
 		}
 		return handler.Split(cfg)
 	}

@@ -1,5 +1,89 @@
 # Changelog
 
+## [2.5.0] - 2024-12-20
+
+### ✨ Added
+- **Custom file extension support**: Add custom extensions at runtime via CLI flags without recompiling
+- Three new global flags:
+  - `--photo-ext` / `-pext`: Add custom photo extensions (e.g., `--photo-ext png,bmp`)
+  - `--video-ext` / `-vext`: Add custom video extensions (e.g., `--video-ext mkv,webm`)
+  - `--raw-ext` / `-rext`: Add custom RAW extensions (e.g., `--raw-ext rwx,rw3`)
+- Custom extensions work for both `picsplit` (split) and `picsplit merge` commands
+- Extension validation: max 8 characters, alphanumeric only
+- Case-insensitive matching: `.PNG` = `.png`
+- Additive approach: custom extensions extend defaults (defaults always included)
+- Verbose logging shows custom extensions in use
+
+### 🔄 Improved
+- **GPS mode - Smarter NoLocation handling**: 
+  - `NoLocation/` folder only created when location clusters exist AND some files lack GPS
+  - When ALL files lack GPS: time-based folders created at root (no unnecessary NoLocation segregation)
+  - More intuitive folder structure for photos without GPS data
+
+### 🔧 Technical Changes
+- New file `handler/extensions.go` (~180 lines):
+  - `ValidateExtension()`: Validates extension format and constraints
+  - `buildExtensionMap()`: Merges default + custom extensions
+  - `executionContext`: Runtime context holding extension maps
+  - `newExecutionContext()`: Creates context from Config with custom extensions
+  - `newDefaultExecutionContext()`: Helper for tests using defaults only
+  - Methods: `isMovie()`, `isPhoto()`, `isRaw()`, `isMediaFile()`
+- New file `handler/extensions_test.go` (~320 lines, 18 test cases, 100% coverage)
+- Configuration updates:
+  - `handler/config.go`: Added `CustomPhotoExts`, `CustomVideoExts`, `CustomRawExts` fields
+  - `handler/merger.go`: Added same 3 fields to `MergeConfig`
+- Handler refactoring:
+  - `handler/splitter.go`: Uses `executionContext` for extension checks
+  - `handler/merger.go`: Uses `executionContext` for media validation
+  - `handler/exif.go`: Modified `ExtractMetadata()` to use `executionContext` (respects custom extensions)
+- CLI implementation in `picsplit.go`:
+  - `parseExtensions()`: Parses comma-separated extension strings with validation
+  - Extension flags available on main command and merge subcommand
+  - `getBuildInfo()`: Uses Go 1.18+ `runtime/debug.ReadBuildInfo()` for automatic version detection
+- Build system improvements:
+  - Removed manual version injection via ldflags
+  - Version now automatically extracted from Git tags and VCS metadata
+  - Simplified Makefile (no more VERSION_FLAG)
+
+### 📝 Usage
+```bash
+# Add custom photo extension
+picsplit --photo-ext png ./data
+
+# Add multiple custom extensions
+picsplit --photo-ext png,bmp --video-ext mkv,webm ./data
+
+# Works with merge command
+picsplit merge --photo-ext png folder1 folder2 merged
+
+# Case-insensitive
+picsplit --photo-ext PNG,Png ./data  # Same as --photo-ext png
+
+# Verbose mode shows custom extensions
+picsplit -v --raw-ext rwx ./data
+```
+
+### ⚠️ Important Notes
+- **Flag order matters** (urfave/cli limitation):
+  - ✅ Correct: `picsplit --photo-ext png ./data`
+  - ❌ Incorrect: `picsplit ./data --photo-ext png` (flag ignored)
+- Extensions are validated on startup with clear error messages:
+  - Max 8 characters: `--photo-ext verylongext` → Error
+  - Alphanumeric only: `--photo-ext jp-g` → Error
+- Custom extensions are **additive**: defaults are never removed
+
+### 🧪 Test Coverage
+- `handler/extensions.go`: 100% coverage (18 test cases)
+  - `ValidateExtension()`: 100% (15 test scenarios)
+  - `buildExtensionMap()`: 100% (9 test scenarios)
+  - `executionContext` methods: 100% (4 test suites)
+  - `newExecutionContext()`: 100% (5 test scenarios)
+- Updated existing tests to use `newDefaultExecutionContext()`
+- Overall project coverage: maintained at 72%+
+
+### 🔗 Closes
+- Issue #3: Allow users to specify custom file extensions via CLI flags
+
 ## [2.4.0] - 2024-12-20
 
 ### ✨ Added

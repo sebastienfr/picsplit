@@ -41,6 +41,11 @@ type MergeConfig struct {
 	TargetFolder  string   // Destination folder
 	Force         bool     // Force overwrite on conflicts
 	DryRun        bool     // Simulation mode
+
+	// Custom extensions (v2.5.0+)
+	CustomPhotoExts []string // Additional photo extensions
+	CustomVideoExts []string // Additional video extensions
+	CustomRawExts   []string // Additional RAW extensions
 }
 
 // FileConflict represents a file conflict between source and target
@@ -62,15 +67,9 @@ type mergeStats struct {
 	conflicts        int
 }
 
-// isMediaFile checks if a file extension is a supported media type
-func isMediaFile(filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	return movieExtension[ext] || rawFileExtension[ext] || jpegExtension[ext]
-}
-
-// isMediaFolder validates that a folder contains only media files and allowed subdirectories (mov/, raw/)
+// isMediaFolderWithContext validates that a folder contains only media files and allowed subdirectories (mov/, raw/)
 // This prevents merging non-media folders (like GPS location folders or arbitrary directories)
-func isMediaFolder(folderPath string) error {
+func isMediaFolderWithContext(folderPath string, ctx *executionContext) error {
 	entries, err := os.ReadDir(folderPath)
 	if err != nil {
 		return fmt.Errorf("failed to read folder %s: %w", folderPath, err)
@@ -86,12 +85,12 @@ func isMediaFolder(folderPath string) error {
 
 			// Recursively validate subdirectories
 			subPath := filepath.Join(folderPath, entry.Name())
-			if err := isMediaFolder(subPath); err != nil {
+			if err := isMediaFolderWithContext(subPath, ctx); err != nil {
 				return err
 			}
 		} else {
-			// Check if file is a media file
-			if !isMediaFile(entry.Name()) {
+			// Check if file is a media file using context
+			if !ctx.isMediaFile(entry.Name()) {
 				return fmt.Errorf("folder %s contains non-media file: %s", folderPath, entry.Name())
 			}
 		}
@@ -101,7 +100,7 @@ func isMediaFolder(folderPath string) error {
 }
 
 // validateMergeFolders validates that folders can be merged
-func validateMergeFolders(sources []string, target string) error {
+func validateMergeFolders(sources []string, target string, ctx *executionContext) error {
 	// Check minimum arguments
 	if len(sources) < 1 {
 		return fmt.Errorf("merge requires at least 1 source folder")
@@ -124,7 +123,7 @@ func validateMergeFolders(sources []string, target string) error {
 		}
 
 		// Validate that folder contains only media files and allowed subdirectories
-		if err := isMediaFolder(source); err != nil {
+		if err := isMediaFolderWithContext(source, ctx); err != nil {
 			return fmt.Errorf("source folder is not a valid media folder: %w", err)
 		}
 	}
@@ -265,8 +264,20 @@ func askUserConflictResolution(conflict *FileConflict) (string, bool, error) {
 //
 //nolint:gocyclo // Complex conflict handling logic, acceptable for this use case
 func Merge(cfg *MergeConfig) error {
+	// Create execution context with custom extensions
+	tempCfg := &Config{
+		CustomPhotoExts: cfg.CustomPhotoExts,
+		CustomVideoExts: cfg.CustomVideoExts,
+		CustomRawExts:   cfg.CustomRawExts,
+	}
+
+	ctx, err := newExecutionContext(tempCfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize extension context: %w", err)
+	}
+
 	// Validate configuration
-	if err := validateMergeFolders(cfg.SourceFolders, cfg.TargetFolder); err != nil {
+	if err := validateMergeFolders(cfg.SourceFolders, cfg.TargetFolder, ctx); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 

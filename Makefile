@@ -1,4 +1,4 @@
-# Makefile for picsplit v2.0.0
+# Makefile for picsplit v2.5.0
 # -----------------------------------------------------------------
 
 # Go environment
@@ -12,11 +12,8 @@ BIN_DIR=./bin
 BINARY_PATH=$(BIN_DIR)/$(BINARY_NAME)
 INSTALL_PATH=$(GO)/bin/$(BINARY_NAME)
 
-# Version
-VERSION=2.0.0
-BUILDDATE=$(shell date -u '+%s')
-BUILDHASH=$(shell git rev-parse --short HEAD)
-VERSION_FLAG=-ldflags "-X main.Version=$(VERSION) -X main.GitHash=$(BUILDHASH) -X main.BuildStmp=$(BUILDDATE)"
+# Version (now handled automatically by Go's runtime/debug.ReadBuildInfo)
+VERSION=2.5.0
 
 # Coverage
 COVERAGE_FILE=coverage.out
@@ -74,7 +71,7 @@ clean:
 build: format
 	@echo "Building picsplit $(VERSION)..."
 	@mkdir -p $(BIN_DIR)
-	@go build $(GOFLAGS) -v $(VERSION_FLAG) -o $(BINARY_PATH) picsplit.go
+	@go build $(GOFLAGS) -v -o $(BINARY_PATH) .
 	@echo "Binary created: $(BINARY_PATH)"
 
 .PHONY: install

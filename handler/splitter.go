@@ -6,41 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	// Movie extensions
-	extMOV = ".mov"
-	extAVI = ".avi"
-	extMP4 = ".mp4"
-
-	// Picture extensions
-	extJPG  = ".jpg"
-	extJPEG = ".jpeg"
-
-	// Raw picture extensions
-	extNEF = ".nef"
-	extNRW = ".nrw"
-	extCRW = ".crw"
-	extCR2 = ".cr2"
-	extRW2 = ".rw2"
-
-	// Modern image formats
-	extHEIC = ".heic" // Apple HEIF
-	extHEIF = ".heif" // Standard HEIF
-	extWebP = ".webp" // Google WebP
-	extAVIF = ".avif" // AV1 Image Format
-
-	// Additional raw formats
-	extDNG = ".dng" // Adobe Digital Negative
-	extARW = ".arw" // Sony
-	extORF = ".orf" // Olympus
-	extRAF = ".raf" // Fujifilm
-
 	// Folder configuration
 	movFolderName     = "mov"
 	rawFolderName     = "raw"
@@ -55,43 +26,13 @@ type fileGroup struct {
 }
 
 var (
-	// movieExtension the list of movie file extensions
-	movieExtension = map[string]bool{
-		extMOV: true,
-		extAVI: true,
-		extMP4: true,
-	}
-
-	// rawFileExtension the list of raw file extensions
-	rawFileExtension = map[string]bool{
-		extNEF: true,
-		extNRW: true,
-		extCRW: true,
-		extCR2: true,
-		extRW2: true,
-		extDNG: true,
-		extARW: true,
-		extORF: true,
-		extRAF: true,
-	}
-
-	// jpegExtension the list of JPEG and modern image file extensions
-	jpegExtension = map[string]bool{
-		extJPG:  true,
-		extJPEG: true,
-		extHEIC: true,
-		extHEIF: true,
-		extWebP: true,
-		extAVIF: true,
-	}
-
 	// Custom errors
 	ErrNotDirectory = errors.New("path is not a directory")
 	ErrInvalidDelta = errors.New("delta must be positive")
 )
 
 // collectMediaFilesWithMetadata récupère tous les fichiers médias avec leurs métadonnées EXIF/vidéo
-func collectMediaFilesWithMetadata(cfg *Config) ([]FileMetadata, error) {
+func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMetadata, error) {
 	entries, err := os.ReadDir(cfg.BasePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read directory: %w", err)
@@ -111,7 +52,8 @@ func collectMediaFilesWithMetadata(cfg *Config) ([]FileMetadata, error) {
 			continue
 		}
 
-		if !isPicture(info) && !isMovie(info) {
+		// Use context to check if file is a media file
+		if !ctx.isPhoto(info.Name()) && !ctx.isMovie(info.Name()) {
 			logrus.Debugf("%s has unknown extension, skipping", info.Name())
 			continue
 		}
@@ -121,7 +63,7 @@ func collectMediaFilesWithMetadata(cfg *Config) ([]FileMetadata, error) {
 		// Extraire métadonnées (EXIF/vidéo)
 		var metadata *FileMetadata
 		if cfg.UseEXIF {
-			metadata, err = ExtractMetadata(filePath)
+			metadata, err = ExtractMetadata(ctx, filePath)
 			if err != nil || metadata.Source == DateSourceModTime {
 				logrus.Debugf("failed to extract metadata for %s, using ModTime", info.Name())
 				exifFailCount++
@@ -208,7 +150,7 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 }
 
 // processGroup traite tous les fichiers d'un groupe
-func processGroup(cfg *Config, group fileGroup) error {
+func processGroup(cfg *Config, ctx *executionContext, group fileGroup) error {
 	// Créer dossier principal (si pas dry-run)
 	if !cfg.DryRun {
 		groupDir := filepath.Join(cfg.BasePath, group.folderName)
@@ -219,11 +161,12 @@ func processGroup(cfg *Config, group fileGroup) error {
 
 	// Traiter chaque fichier
 	for _, file := range group.files {
-		if isPicture(file.FileInfo) {
-			if err := processPicture(cfg, file.FileInfo, group.folderName); err != nil {
+		fileName := file.FileInfo.Name()
+		if ctx.isPhoto(fileName) {
+			if err := processPicture(cfg, ctx, file.FileInfo, group.folderName); err != nil {
 				return err
 			}
-		} else if isMovie(file.FileInfo) {
+		} else if ctx.isMovie(fileName) {
 			if err := processMovie(cfg, file.FileInfo, group.folderName); err != nil {
 				return err
 			}
@@ -240,8 +183,14 @@ func Split(cfg *Config) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
+	// Create execution context with custom extensions
+	ctx, err := newExecutionContext(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize extension context: %w", err)
+	}
+
 	// 1. Collecter fichiers média avec métadonnées
-	mediaFiles, err := collectMediaFilesWithMetadata(cfg)
+	mediaFiles, err := collectMediaFilesWithMetadata(cfg, ctx)
 	if err != nil {
 		return fmt.Errorf("failed to collect media files: %w", err)
 	}
@@ -287,21 +236,33 @@ func Split(cfg *Config) error {
 			}
 		}
 
-		// Traiter fichiers sans GPS dans dossier "NoLocation"
+		// Traiter fichiers sans GPS
 		if len(filesWithoutGPS) > 0 {
-			logrus.Infof("processing %d files without GPS in '%s' folder", len(filesWithoutGPS), GetNoLocationFolderName())
-
 			// Trier et grouper par temps
 			sortFilesByDateTime(filesWithoutGPS)
 			noGPSGroups := groupFilesByGaps(filesWithoutGPS, cfg.Delta)
 
-			for _, noGPSGroup := range noGPSGroups {
-				folderName := filepath.Join(GetNoLocationFolderName(), noGPSGroup.folderName)
-				groups = append(groups, fileGroup{
-					folderName: folderName,
-					firstFile:  noGPSGroup.firstFile,
-					files:      noGPSGroup.files,
-				})
+			// Si des clusters de localisation existent, créer sous-dossier "NoLocation"
+			// Sinon, mettre directement à la racine (pas de nécessité de ségrégation)
+			if len(locationClusters) > 0 {
+				logrus.Infof("processing %d files without GPS in '%s' folder", len(filesWithoutGPS), GetNoLocationFolderName())
+				for _, noGPSGroup := range noGPSGroups {
+					folderName := filepath.Join(GetNoLocationFolderName(), noGPSGroup.folderName)
+					groups = append(groups, fileGroup{
+						folderName: folderName,
+						firstFile:  noGPSGroup.firstFile,
+						files:      noGPSGroup.files,
+					})
+				}
+			} else {
+				logrus.Infof("processing %d files without GPS at root (no location clusters)", len(filesWithoutGPS))
+				for _, noGPSGroup := range noGPSGroups {
+					groups = append(groups, fileGroup{
+						folderName: noGPSGroup.folderName,
+						firstFile:  noGPSGroup.firstFile,
+						files:      noGPSGroup.files,
+					})
+				}
 			}
 		}
 	} else {
@@ -320,7 +281,7 @@ func Split(cfg *Config) error {
 		logrus.Infof("[%d/%d] processing group %s (%d files)",
 			i+1, len(groups), group.folderName, len(group.files))
 
-		if err := processGroup(cfg, group); err != nil {
+		if err := processGroup(cfg, ctx, group); err != nil {
 			return fmt.Errorf("failed to process group %s: %w", group.folderName, err)
 		}
 	}
@@ -329,13 +290,13 @@ func Split(cfg *Config) error {
 }
 
 // processPicture handles the processing of picture files
-func processPicture(cfg *Config, fi os.FileInfo, datedFolder string) error {
+func processPicture(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFolder string) error {
 	logrus.Debugf("processing picture: %s → %s", fi.Name(), datedFolder)
 
 	destDir := datedFolder
 
 	// Special handling for RAW files
-	if isRaw(fi) && !cfg.NoMoveRaw {
+	if ctx.isRaw(fi.Name()) && !cfg.NoMoveRaw {
 		baseRawDir := filepath.Join(cfg.BasePath, datedFolder)
 		rawDir, err := findOrCreateFolder(baseRawDir, rawFolderName, cfg.DryRun)
 		if err != nil {
@@ -413,19 +374,4 @@ func moveFile(basedir, src, dest string, dryRun bool) error {
 	}
 
 	return nil
-}
-
-func isMovie(file os.FileInfo) bool {
-	ext := strings.ToLower(filepath.Ext(file.Name()))
-	return movieExtension[ext]
-}
-
-func isPicture(file os.FileInfo) bool {
-	ext := strings.ToLower(filepath.Ext(file.Name()))
-	return jpegExtension[ext] || rawFileExtension[ext]
-}
-
-func isRaw(file os.FileInfo) bool {
-	ext := strings.ToLower(filepath.Ext(file.Name()))
-	return rawFileExtension[ext]
 }
