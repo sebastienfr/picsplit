@@ -212,7 +212,7 @@ func processGroup(cfg *Config, group fileGroup) error {
 	// Créer dossier principal (si pas dry-run)
 	if !cfg.DryRun {
 		groupDir := filepath.Join(cfg.BasePath, group.folderName)
-		if err := os.MkdirAll(groupDir, 0755); err != nil {
+		if err := os.MkdirAll(groupDir, permDirectory); err != nil {
 			return fmt.Errorf("failed to create folder %s: %w", groupDir, err)
 		}
 	}
@@ -379,7 +379,7 @@ func findOrCreateFolder(basedir, name string, dryRun bool) (string, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Create the folder
-			if err := os.Mkdir(dirCreate, 0755); err != nil {
+			if err := os.Mkdir(dirCreate, permDirectory); err != nil {
 				return "", fmt.Errorf("failed to create folder %s: %w", dirCreate, err)
 			}
 

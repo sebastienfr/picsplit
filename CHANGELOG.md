@@ -1,5 +1,93 @@
 # Changelog
 
+## [2.4.0] - 2024-12-20
+
+### ✨ Added
+- **Merge command**: Combine multiple time-based folders into one
+- Interactive conflict resolution with 5 options:
+  - `[r]` Rename: Generate unique filename to avoid conflict
+  - `[s]` Skip: Keep target version, don't move source file
+  - `[o]` Overwrite: Replace target with source file
+  - `[a]` Apply to all: Apply chosen action to remaining conflicts
+  - `[q]` Quit: Abort merge operation immediately
+- `--force` flag: Automatically overwrite all conflicts without prompting
+- `--dryrun` flag: Preview merge operations without moving files
+- Media folder validation: Only folders containing media files can be merged
+- Automatic source folder cleanup after successful merge
+- Structure preservation: `mov/` and `raw/` subdirectories are maintained
+
+### 🔧 Technical Changes
+- New file `handler/merger.go` with merge logic (~430 lines)
+- New file `handler/merger_test.go` with comprehensive test suite (~680 lines, 15+ test cases)
+- New `MergeConfig` struct with `SourceFolders`, `TargetFolder`, `Force`, `DryRun` fields
+- New `FileConflict` struct for conflict tracking
+- Validation functions:
+  - `isMediaFile()`: Checks if file extension is a supported media type
+  - `isMediaFolder()`: Validates folder contains only media files + mov/raw subdirs
+  - `validateMergeFolders()`: Pre-merge validation of sources and target
+- Conflict handling functions:
+  - `detectConflict()`: Checks for file conflicts at target path
+  - `askUserConflictResolution()`: Interactive stdin prompts for conflict resolution
+  - `generateUniqueName()`: Creates unique filenames (photo.jpg → photo_1.jpg → photo_2.jpg)
+- File operations:
+  - `collectFilesRecursive()`: Recursively collects all files from a directory
+  - `Merge()`: Main orchestration function with stats tracking
+
+### 📝 Usage
+```bash
+# Basic merge with interactive conflict resolution
+picsplit merge "2025 - 0616 - 0945" "2025 - 0616 - 1430" "2025 - 0616 - merged"
+
+# Force mode: auto-overwrite all conflicts
+picsplit merge folder1 folder2 folder3 target --force
+
+# Dry run: preview merge operations
+picsplit merge source1 source2 target --dryrun -v
+```
+
+### ⚙️ Validation Rules
+**Media folder requirements**:
+- Must contain ONLY media files (photos: jpg/jpeg/heic/webp/avif, videos: mov/mp4/avi, raw: nef/cr2/dng/arw/orf/raf)
+- May contain ONLY `mov/` and `raw/` subdirectories (case-insensitive)
+- Other file types or subdirectories will cause validation errors
+- Empty folders are allowed (will be merged and cleaned up)
+
+**Restrictions**:
+- GPS location folders (e.g., `48.8566N-2.3522E`) cannot be merged
+  - These contain nested time-based subfolders
+  - Would violate media folder validation (non-media subdirectories)
+- Only time-based folders (e.g., `2025 - 0616 - 0945`) are mergeable
+
+### 🧪 Test Coverage
+- `handler/merger.go`: 77.6% coverage (15+ test cases)
+  - `isMediaFile()`: 100% coverage
+  - `isMediaFolder()`: 85.7% coverage (7 test scenarios)
+  - `validateMergeFolders()`: 81.2% coverage
+  - `Merge()`: 77.6% coverage (main function)
+  - Untested: `askUserConflictResolution()` (requires interactive stdin)
+- Test scenarios:
+  - Basic 2-folder merge
+  - Multiple folder merge (4 sources)
+  - Empty source folders
+  - Target folder already exists
+  - mov/raw/ structure preservation
+  - No conflicts
+  - Conflicts with force flag
+  - Dry-run mode
+  - Dry-run with conflicts
+  - Media folder validation (valid/invalid cases)
+- Overall project coverage: 72.2%
+
+### 📚 Documentation
+- README.md updated with merge command section
+- Usage examples with common scenarios
+- Important notes about GPS folder restrictions
+- Roadmap updated to mark v2.4.0 as completed
+
+**Closes** [#4](https://github.com/sebastienfr/picsplit/issues/4)
+
+---
+
 ## [2.3.0] - 2024-12-20
 
 ### ✨ Added

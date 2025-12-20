@@ -202,6 +202,29 @@ picsplit --gps -v -dryrun ./photos
 picsplit --gps --use-exif --delta 2h ./photos
 ```
 
+### Merge folders (v2.4.0+)
+```bash
+# Merge two time-based folders into one (interactive conflict resolution)
+picsplit merge "2025 - 0616 - 0945" "2025 - 0616 - 1430" "2025 - 0616 - merged"
+
+# Merge multiple folders with force overwrite (no prompts)
+picsplit merge folder1 folder2 folder3 target --force
+
+# Preview merge with dry-run mode
+picsplit merge source1 source2 target --dryrun -v
+
+# Merge preserves subdirectory structure (mov/, raw/)
+picsplit merge event1 event2 combined
+```
+
+**Important notes:**
+- Only time-based folders (e.g., `2025 - 0616 - 0945`) can be merged
+- GPS location folders (e.g., `48.8566N-2.3522E`) cannot be merged (contains nested time folders)
+- Merge validates that folders contain only media files (photos/videos/RAW)
+- Source folders are automatically deleted after successful merge
+- Structure is preserved: `mov/` and `raw/` subdirectories are maintained
+- Conflicts can be handled interactively (rename/skip/overwrite) or with `--force` flag
+
 ### Example output structures
 
 **Time-only mode** (default):
@@ -279,9 +302,17 @@ photos/
 - [X] move raw
 - [X] dry run mode
 
+### Version 2.4.0 (December 2024)
+
+- [X] Merge command to combine split folders
+- [X] Interactive conflict resolution (rename/skip/overwrite/apply-all)
+- [X] Force mode (`--force`) for automatic conflict overwrite
+- [X] Media folder validation (only media files + mov/raw subdirs)
+- [X] Structure preservation during merge
+- [X] Automatic source folder cleanup
+
 ### Next releases
 
-- [ ] Version 2.4.0: Merge folder command (case split too much)
 - [ ] Version 3.0.0: Interactive console GUI with TUI
 - [ ] Duplicate detection and handling
 - [ ] Photo similarity detection (group similar photos together)

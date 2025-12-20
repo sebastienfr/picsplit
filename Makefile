@@ -58,6 +58,8 @@ help:
 clean:
 	@echo "Cleaning..."
 	@go clean
+	@go clean -cache
+	@go clean -testcache
 	@rm -f $(COVERAGE_FILE) $(COVERAGE_HTML)
 	@rm -Rf .tmp
 	@rm -Rf *.log

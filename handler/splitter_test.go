@@ -1073,3 +1073,337 @@ func TestDefaultConfig(t *testing.T) {
 		t.Error("expected UseEXIF to be true")
 	}
 }
+
+// ========================================
+// Tests for Split() edge cases
+// ========================================
+
+func TestSplit_NoMediaFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create only non-media files
+	if err := os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("text"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "data.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Delta:       30 * time.Minute,
+		NoMoveMovie: false,
+		NoMoveRaw:   false,
+		DryRun:      false,
+		UseEXIF:     true,
+		UseGPS:      false,
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() should not error with no media files, got: %v", err)
+	}
+}
+
+func TestSplit_GPSMode_AllFilesWithGPS(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test files with GPS coordinates
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	// Paris location (close together)
+	createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+	createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(10*time.Minute))
+
+	// London location (far from Paris)
+	createTestFile(t, tmpDir, "photo3.jpg", baseTime.Add(2*time.Hour))
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Delta:       30 * time.Minute,
+		NoMoveMovie: false,
+		NoMoveRaw:   false,
+		DryRun:      false,
+		UseEXIF:     false, // Use ModTime for simplicity
+		UseGPS:      true,
+		GPSRadius:   2000.0, // 2km
+	}
+
+	// Note: This test will process files but won't create GPS clusters
+	// because we can't inject GPS coordinates without EXIF
+	// It will fall into "NoLocation" folder
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() GPS mode error: %v", err)
+	}
+
+	// Verify NoLocation folder was created
+	noLocFolder := filepath.Join(tmpDir, GetNoLocationFolderName())
+	if _, err := os.Stat(noLocFolder); os.IsNotExist(err) {
+		t.Error("NoLocation folder should be created when files lack GPS")
+	}
+}
+
+func TestSplit_ValidationError(t *testing.T) {
+	cfg := &Config{
+		BasePath: "", // Empty path should fail validation
+		Delta:    30 * time.Minute,
+	}
+
+	err := Split(cfg)
+	if err == nil {
+		t.Error("Split() should error on invalid configuration")
+	}
+}
+
+func TestSplit_InvalidBasePath(t *testing.T) {
+	cfg := &Config{
+		BasePath: "/nonexistent/path/that/does/not/exist",
+		Delta:    30 * time.Minute,
+	}
+
+	err := Split(cfg)
+	if err == nil {
+		t.Error("Split() should error when base path doesn't exist")
+	}
+}
+
+func TestCollectMediaFilesWithMetadata_EmptyDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	cfg := &Config{
+		BasePath: tmpDir,
+		Delta:    30 * time.Minute,
+		UseEXIF:  true,
+	}
+
+	files, err := collectMediaFilesWithMetadata(cfg)
+	if err != nil {
+		t.Fatalf("collectMediaFilesWithMetadata() error: %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Errorf("expected 0 files in empty directory, got %d", len(files))
+	}
+}
+
+func TestProcessGroup_DryRunMode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+	createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Delta:       30 * time.Minute,
+		NoMoveMovie: false,
+		NoMoveRaw:   false,
+		DryRun:      true, // Dry run mode
+		UseEXIF:     false,
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() dry-run error: %v", err)
+	}
+
+	// In dry-run, files should NOT be moved
+	originalPath := filepath.Join(tmpDir, "photo1.jpg")
+	if _, err := os.Stat(originalPath); os.IsNotExist(err) {
+		t.Error("file should not be moved in dry-run mode")
+	}
+}
+
+func TestSplit_MixedMediaTypes(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	// Create mix of photos, videos, and RAW files
+	createTestFile(t, tmpDir, "photo.jpg", baseTime)
+	createTestFile(t, tmpDir, "video.mov", baseTime.Add(5*time.Minute))
+	createTestFile(t, tmpDir, "raw.nef", baseTime.Add(10*time.Minute))
+	createTestFile(t, tmpDir, "image.heic", baseTime.Add(15*time.Minute))
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Delta:       30 * time.Minute,
+		NoMoveMovie: false, // Movies should go to mov/
+		NoMoveRaw:   false, // RAW should go to raw/
+		DryRun:      false,
+		UseEXIF:     false, // Use ModTime
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() error: %v", err)
+	}
+
+	// All files should be in one group (within 30min delta)
+	// Find the dated folder
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var datedFolder string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			datedFolder = filepath.Join(tmpDir, entry.Name())
+			break
+		}
+	}
+
+	if datedFolder == "" {
+		t.Fatal("no dated folder created")
+	}
+
+	// Verify structure
+	photoPath := filepath.Join(datedFolder, "photo.jpg")
+	heicPath := filepath.Join(datedFolder, "image.heic")
+	movPath := filepath.Join(datedFolder, "mov", "video.mov")
+	rawPath := filepath.Join(datedFolder, "raw", "raw.nef")
+
+	for _, path := range []string{photoPath, heicPath, movPath, rawPath} {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("expected file not found: %s", path)
+		}
+	}
+}
+
+func TestSplit_NoMoveMovieAndRaw(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	createTestFile(t, tmpDir, "photo.jpg", baseTime)
+	createTestFile(t, tmpDir, "video.mov", baseTime.Add(5*time.Minute))
+	createTestFile(t, tmpDir, "raw.nef", baseTime.Add(10*time.Minute))
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Delta:       30 * time.Minute,
+		NoMoveMovie: true, // Keep movies in root
+		NoMoveRaw:   true, // Keep RAW in root
+		DryRun:      false,
+		UseEXIF:     false,
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() error: %v", err)
+	}
+
+	// Find the dated folder
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var datedFolder string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			datedFolder = filepath.Join(tmpDir, entry.Name())
+			break
+		}
+	}
+
+	if datedFolder == "" {
+		t.Fatal("no dated folder created")
+	}
+
+	// Verify all files are in root of dated folder (not in mov/ or raw/)
+	photoPath := filepath.Join(datedFolder, "photo.jpg")
+	movPath := filepath.Join(datedFolder, "video.mov") // Not in mov/
+	rawPath := filepath.Join(datedFolder, "raw.nef")   // Not in raw/
+
+	for _, path := range []string{photoPath, movPath, rawPath} {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("expected file in root of dated folder, not found: %s", path)
+		}
+	}
+
+	// Verify mov/ and raw/ folders were NOT created
+	movDir := filepath.Join(datedFolder, "mov")
+	rawDir := filepath.Join(datedFolder, "raw")
+
+	if _, err := os.Stat(movDir); !os.IsNotExist(err) {
+		t.Error("mov/ folder should not be created when NoMoveMovie is true")
+	}
+	if _, err := os.Stat(rawDir); !os.IsNotExist(err) {
+		t.Error("raw/ folder should not be created when NoMoveRaw is true")
+	}
+}
+
+func TestSplit_MultipleGroups(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	// Create files in 3 distinct time groups (separated by > 30 minutes)
+	createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+	createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(10*time.Minute)) // Same group
+
+	createTestFile(t, tmpDir, "photo3.jpg", baseTime.Add(1*time.Hour))    // New group (60min gap)
+	createTestFile(t, tmpDir, "photo4.jpg", baseTime.Add(65*time.Minute)) // Same group
+
+	createTestFile(t, tmpDir, "photo5.jpg", baseTime.Add(3*time.Hour)) // New group (2h gap)
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Delta:       30 * time.Minute,
+		NoMoveMovie: false,
+		NoMoveRaw:   false,
+		DryRun:      false,
+		UseEXIF:     false,
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() error: %v", err)
+	}
+
+	// Count dated folders
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	folderCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			folderCount++
+		}
+	}
+
+	if folderCount != 3 {
+		t.Errorf("expected 3 dated folders (3 groups), got %d", folderCount)
+	}
+}
+
+func TestCollectMediaFilesWithMetadata_OnlyNonMedia(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create only non-media files
+	if err := os.WriteFile(filepath.Join(tmpDir, "doc.txt"), []byte("text"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "data.csv"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		BasePath: tmpDir,
+		Delta:    30 * time.Minute,
+		UseEXIF:  true,
+	}
+
+	files, err := collectMediaFilesWithMetadata(cfg)
+	if err != nil {
+		t.Fatalf("collectMediaFilesWithMetadata() error: %v", err)
+	}
+
+	if len(files) != 0 {
+		t.Errorf("expected 0 media files, got %d", len(files))
+	}
+}

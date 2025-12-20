@@ -60,9 +60,17 @@ const (
 
 	// Application metadata
 	appName        = "picsplit"
-	appUsage       = "picture event splitter"
-	authorName     = "sfr"
+	appUsage       = "photo shooting event splitter and merger"
+	authorName     = "Sébastien FRIESS"
 	copyrightOwner = "sebastienfr"
+
+	// Command names
+	cmdMerge = "merge"
+
+	// Flag names
+	flagForce   = "force"
+	flagDryRun  = "dryrun"
+	flagVerbose = "verbose"
 )
 
 // InitLog initializes the logrus logger
@@ -103,6 +111,79 @@ func main() {
 			{Name: authorName},
 		},
 		Copyright: copyrightOwner + " " + strconv.Itoa(time.Now().Year()),
+		Commands: []*cli.Command{
+			{
+				Name:      cmdMerge,
+				Usage:     "Merge multiple time-based folders into one",
+				ArgsUsage: "SOURCE1 [SOURCE2 ...] TARGET",
+				Description: `Merge multiple time-based folders into a single target folder.
+   Files are moved (not copied) to save disk space.
+   Source folders are automatically deleted after successful merge.
+   
+   IMPORTANT: GPS location folders (e.g., "48.8566N-2.3522E") cannot be merged.
+   Only time-based folders (e.g., "2025 - 0616 - 0945") are supported.
+   
+   Conflict handling:
+   - By default, asks user how to resolve each conflict (rename/skip/overwrite)
+   - Use --force to automatically overwrite all conflicts without asking
+   
+   Examples:
+     picsplit merge "2025 - 0616 - 0945" "2025 - 0616 - 1430" "2025 - 0616 - merged"
+     picsplit merge folder1 folder2 folder3 target --force
+     picsplit merge folder1 folder2 target --dryrun -v`,
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    flagForce,
+						Aliases: []string{"f"},
+						Usage:   "Overwrite files without asking on conflict",
+					},
+					&cli.BoolFlag{
+						Name:    flagDryRun,
+						Aliases: []string{"dr"},
+						Usage:   "Simulate merge without moving files",
+					},
+					&cli.BoolFlag{
+						Name:    flagVerbose,
+						Aliases: []string{"v"},
+						Usage:   "Print detailed logs",
+					},
+				},
+				Action: func(c *cli.Context) error {
+					// Init logger
+					InitLog(c.Bool(flagVerbose))
+
+					// Print header
+					fmt.Println(string(header))
+
+					// Validate arguments
+					if c.NArg() < 2 {
+						return fmt.Errorf("merge requires at least 2 arguments (SOURCE... TARGET)")
+					}
+
+					// Parse arguments
+					args := c.Args().Slice()
+					targetFolder := args[len(args)-1]
+					sourceFolders := args[:len(args)-1]
+
+					// Debug info
+					logrus.Debugf("Merge configuration:")
+					logrus.Debugf("  Sources: %v", sourceFolders)
+					logrus.Debugf("  Target: %s", targetFolder)
+					logrus.Debugf("  Force: %t", c.Bool(flagForce))
+					logrus.Debugf("  DryRun: %t", c.Bool(flagDryRun))
+
+					// Execute merge
+					cfg := &handler.MergeConfig{
+						SourceFolders: sourceFolders,
+						TargetFolder:  targetFolder,
+						Force:         c.Bool(flagForce),
+						DryRun:        c.Bool(flagDryRun),
+					}
+
+					return handler.Merge(cfg)
+				},
+			},
+		},
 	}
 
 	// command line flags
