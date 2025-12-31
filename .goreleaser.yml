@@ -15,9 +15,10 @@ builds:
     env:
       - CGO_ENABLED=0
     
-    # Build flags (version info is handled by runtime/debug.ReadBuildInfo)
+    # Build flags (version injected via ldflags, VCS info from runtime/debug)
     ldflags:
       - -s -w
+      - -X main.version={{.Version}}
     
     # Target platforms
     goos:

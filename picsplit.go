@@ -15,6 +15,10 @@ import (
 )
 
 var (
+	// version will be set via ldflags during build (-X main.version=X.Y.Z)
+	// Default: "dev" for development builds without ldflags
+	version = "dev"
+
 	// path -path : the path to the folder containing the files to be processed
 	path = "."
 
@@ -52,7 +56,7 @@ var (
 	customRawExts string
 
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
-		"X19fIHxfX3wgX19fXyAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
+		"X19fIHxfX3wgX19fXCAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
 		"AgPnwgICBfXy98X19fXy9fX3x8X198CnxfX3wgICAgICAgICAgIFwvICAgICBcLyB8X198")
 )
@@ -121,51 +125,32 @@ func InitLog(verbose bool) {
 }
 
 // getBuildInfo returns version information from build metadata
-func getBuildInfo() (version, buildTime, gitHash string) {
-	version = "2.5.0-dev"
-	buildTime = time.Now().Format(time.RFC3339)
-	gitHash = "unknown"
+// Version is injected via ldflags, VCS info comes from runtime/debug (Go 1.18+)
+func getBuildInfo() (string, string, string) {
+	buildTime := time.Now().Format(time.RFC3339)
+	gitHash := "unknown"
 
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		return
+		return version, buildTime, gitHash
 	}
 
-	// Try to get version from VCS (Git tag)
-	// Go 1.18+ embeds VCS info automatically
-	var vcsRevision, vcsTime, vcsModified string
+	// Extract VCS information (commit hash, build time, dirty flag)
 	for _, setting := range info.Settings {
 		switch setting.Key {
 		case "vcs.revision":
-			vcsRevision = setting.Value
-			if len(vcsRevision) > 7 {
-				gitHash = vcsRevision[:7] // Short hash
+			if len(setting.Value) > 7 {
+				gitHash = setting.Value[:7] // Short hash
 			} else {
-				gitHash = vcsRevision
+				gitHash = setting.Value
 			}
 		case "vcs.time":
-			vcsTime = setting.Value
-			buildTime = vcsTime
+			buildTime = setting.Value
 		case "vcs.modified":
-			vcsModified = setting.Value
+			if setting.Value == "true" {
+				gitHash += "-dirty"
+			}
 		}
-	}
-
-	// Get version from module info (set by Git tags or go.mod)
-	if info.Main.Version != "" && info.Main.Version != "(devel)" {
-		// Clean up pseudo-versions (e.g., v0.0.0-20220101120000-abc123def456)
-		// Keep only semantic version tags (e.g., v2.5.0)
-		if strings.HasPrefix(info.Main.Version, "v") && !strings.Contains(info.Main.Version, "-0.") {
-			version = strings.TrimPrefix(info.Main.Version, "v")
-		} else {
-			// Development build, keep custom version
-			version = "2.5.0-dev"
-		}
-	}
-
-	// Add dirty flag if repository has uncommitted changes
-	if vcsModified == "true" {
-		gitHash += "-dirty"
 	}
 
 	return version, buildTime, gitHash

@@ -167,6 +167,63 @@ To install system-wide:
 make install
 ```
 
+## Building
+
+### Version Management
+
+picsplit uses automatic version detection based on Git tags for consistent local and CI builds:
+
+- **Clean tag** (e.g., `v2.5.1`): Version displays as `2.5.1`
+- **Dirty working tree**: Version displays as `X.Y.Z-dev` (uncommitted changes)
+- **Commits after tag**: Version displays as `X.Y.Z-dev` (development build)
+- **No tags**: Version displays as `dev`
+
+The build system automatically injects version information using Git tags and embeds VCS metadata (commit hash, build time) using Go 1.18+ build info (`runtime/debug.ReadBuildInfo`).
+
+### Build Commands
+
+```bash
+# Build with automatic version detection
+make build
+
+# Check detected version before building
+make version
+
+# Build and install to $GOPATH/bin
+make install
+
+# Clean build artifacts
+make clean
+
+# Test local release build (GoReleaser)
+make release-snapshot
+```
+
+### Version Examples
+
+```bash
+# Building from a clean tag v2.5.1
+$ git checkout v2.5.1
+$ make build
+Building picsplit 2.5.1...
+$ ./bin/picsplit -V
+picsplit version 2.5.1, build on 2024-12-20 15:30:00 +0000 UTC, git hash 38666bb
+
+# Building with uncommitted changes
+$ echo "test" >> test.txt
+$ make build
+Building picsplit 2.5.1-dev...
+$ ./bin/picsplit -V
+picsplit version 2.5.1-dev, build on 2024-12-20 15:35:00 +0000 UTC, git hash 38666bb-dirty
+
+# Building from a commit after a tag
+$ git checkout main  # 3 commits after v2.5.1
+$ make build
+Building picsplit 2.5.1-dev...
+$ ./bin/picsplit -V
+picsplit version 2.5.1-dev, build on 2024-12-20 16:00:00 +0000 UTC, git hash abc1234
+```
+
 ## Development
 
 ### Build and test

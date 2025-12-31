@@ -12,6 +12,29 @@ BIN_DIR=./bin
 BINARY_PATH=$(BIN_DIR)/$(BINARY_NAME)
 INSTALL_PATH=$(GO)/bin/$(BINARY_NAME)
 
+# Version detection via Git
+# Automatically detects version from Git tags for consistent local and CI builds
+GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
+# Transform git version to semantic version:
+# - v2.5.1           -> 2.5.1
+# - v2.5.1-dirty     -> 2.5.1-dev
+# - v2.5.1-3-gabc123 -> 2.5.1-dev
+# - abc123           -> dev
+VERSION := $(shell \
+	v="$(GIT_VERSION)"; \
+	if echo "$$v" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$'; then \
+		echo "$$v" | sed 's/^v//'; \
+	elif echo "$$v" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+-'; then \
+		echo "$$v" | sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+)-.*/\1-dev/'; \
+	else \
+		echo "dev"; \
+	fi \
+)
+
+# Build flags
+LDFLAGS := -s -w -X main.version=$(VERSION)
+
 # Coverage
 COVERAGE_FILE=coverage.out
 COVERAGE_HTML=coverage.html
@@ -32,6 +55,7 @@ help:
 	@echo "clean                clean the project (bin/, coverage files, temp files)"
 	@echo "build                build the binary to ./bin/picsplit"
 	@echo "install              install the binary to GOPATH/bin"
+	@echo "version              display version information from Git"
 	@echo "----- TESTS && COVERAGE ----------------------------------------------------------"
 	@echo "test                 run tests"
 	@echo "test-coverage        run tests with coverage report"
@@ -66,10 +90,15 @@ clean:
 
 .PHONY: build
 build: format
-	@echo "Building picsplit..."
+	@echo "Building picsplit $(VERSION)..."
 	@mkdir -p $(BIN_DIR)
-	@go build $(GOFLAGS) -v -o $(BINARY_PATH) .
+	@go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -v -o $(BINARY_PATH) .
 	@echo "Binary created: $(BINARY_PATH)"
+
+.PHONY: version
+version:
+	@echo "Git version: $(GIT_VERSION)"
+	@echo "Parsed version: $(VERSION)"
 
 .PHONY: install
 install: build
