@@ -33,6 +33,7 @@ picsplit moves files on your filesystem. While extensively tested, you should NE
 - [Key Features](#-key-features)
 - [Quick Start](#-quick-start)
 - [Use Cases](#-use-cases)
+- [Roadmap](#%EF%B8%8F-roadmap)
 - [How It Works](#-how-it-works)
 - [Usage Guide](#-usage-guide)
   - [Basic Usage](#basic-usage)
@@ -266,6 +267,87 @@ picsplit --video-ext dng --use-exif --delta 2h ./wedding-footage
 ```
 
 **Result:** All cameras' footage organized by timeline, grouped into ceremony/reception/etc.
+
+---
+
+## 🗺️ Roadmap
+
+picsplit évolue continuellement avec de nouvelles fonctionnalités basées sur les retours utilisateurs. Voici les prochaines versions planifiées :
+
+### 🚧 v2.7.0 - Logging & Observability (Q1 2026)
+
+**Objectif** : Améliorer le feedback utilisateur et l'observabilité pendant l'exécution.
+
+**Nouvelles fonctionnalités** :
+
+- **Logs structurés** ([#7](https://github.com/sebastienfr/picsplit/issues/7))  
+  Migration vers `log/slog` (stdlib Go) pour des logs typés et performants
+
+- **Niveaux de log configurables** ([#8](https://github.com/sebastienfr/picsplit/issues/8))  
+  `--log-level debug|info|warn|error` + formats Text/JSON (`--log-format`)
+
+- **Barre de progression temps réel** ([#9](https://github.com/sebastienfr/picsplit/issues/9))  
+  Affichage du % d'avancement, temps écoulé/restant, vitesse de traitement
+
+- **Summary enrichi** ([#10](https://github.com/sebastienfr/picsplit/issues/10))  
+  Métriques détaillées (durée, throughput, stats par type de fichier, erreurs claires)
+
+**Exemple de nouveau summary** :
+```
+=== Processing Summary ===
+Duration: 2m 35s
+Files processed: 1,245 / 1,245 (100%)
+  - Photos: 980 (78.7%)
+  - Videos: 165 (13.3%)
+  - RAW: 100 (8.0%)
+Throughput: 158 MB/s
+
+✓ Operation completed successfully
+```
+
+---
+
+### 🚀 v2.8.0 - Robustness & Advanced Features (Q2 2026)
+
+**Objectif** : Renforcer la robustesse avec gestion d'erreurs avancée et nouveaux modes.
+
+**Nouvelles fonctionnalités** :
+
+- **Erreurs typées avec contexte** ([#11](https://github.com/sebastienfr/picsplit/issues/11))  
+  Messages d'erreur structurés avec suggestions de correction automatiques
+
+- **Mode continue-on-error** ([#12](https://github.com/sebastienfr/picsplit/issues/12))  
+  `--continue-on-error` pour traiter tous les fichiers possibles sans s'arrêter au premier échec
+
+- **⚠️ Mode validation rapide** ([#13](https://github.com/sebastienfr/picsplit/issues/13))  
+  `--mode validate|dryrun|run` pour pré-vérification ultra-rapide (5s vs 2m)  
+  **Breaking change** : Retire `--dryrun` (remplacé par `--mode dryrun`)
+
+- **Détection de doublons** ([#14](https://github.com/sebastienfr/picsplit/issues/14))  
+  `--detect-duplicates` pour identifier fichiers identiques (hash SHA256)
+
+- **Nettoyage automatique** ([#15](https://github.com/sebastienfr/picsplit/issues/15))  
+  `--cleanup-empty-dirs` pour supprimer dossiers vides après traitement
+
+**Exemple de workflow v2.8.0** :
+```bash
+# 1. Validation rapide (5s)
+picsplit /photos --mode validate
+
+# 2. Dry-run complet (30s)
+picsplit /photos --mode dryrun
+
+# 3. Exécution réelle avec détection doublons
+picsplit /photos --detect-duplicates --skip-duplicates --cleanup-empty-dirs
+```
+
+---
+
+### 💡 Suggérer une fonctionnalité
+
+Vous avez une idée pour améliorer picsplit ? [Ouvrez une issue](https://github.com/sebastienfr/picsplit/issues/new) pour proposer votre suggestion !
+
+**Historique complet** : Consultez le [CHANGELOG](./CHANGELOG.md) pour voir toutes les évolutions depuis la v1.0.
 
 ---
 
