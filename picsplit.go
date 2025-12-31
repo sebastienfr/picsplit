@@ -55,6 +55,9 @@ var (
 	// customRawExts -rext : additional RAW extensions (v2.5.0+)
 	customRawExts string
 
+	// separateOrphanRaw -separate-orphan : separate unpaired RAW files to orphan/ folder (v2.6.0+)
+	separateOrphanRaw = true
+
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
 		"X19fIHxfX3wgX19fXCAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
@@ -370,6 +373,13 @@ func main() {
 			Destination: &customRawExts,
 			Usage:       "Additional RAW extensions (comma-separated, e.g., 'rwx,srw,3fr'). Max 8 chars, alphanumeric only",
 		},
+		&cli.BoolFlag{
+			Name:        "separate-orphan",
+			Aliases:     []string{"so"},
+			Value:       true,
+			Destination: &separateOrphanRaw,
+			Usage:       "Separate unpaired RAW files to orphan/ folder (default: true)",
+		},
 	}
 
 	// main action
@@ -422,6 +432,7 @@ func main() {
 		if len(rawExts) > 0 {
 			logrus.Debugf("| custom raw ext       : %s", strings.Join(rawExts, ", "))
 		}
+		logrus.Debugf("| separate orphan RAW  : %t", separateOrphanRaw)
 		logrus.Debug("* ----------------------------------------------------- *")
 
 		// check path exists
@@ -435,17 +446,18 @@ func main() {
 		}
 
 		cfg := &handler.Config{
-			BasePath:        path,
-			Delta:           durationDelta,
-			NoMoveMovie:     noMoveMovie,
-			NoMoveRaw:       noMoveRaw,
-			DryRun:          dryRun,
-			UseEXIF:         useEXIF,
-			UseGPS:          useGPS,
-			GPSRadius:       gpsRadius,
-			CustomPhotoExts: photoExts,
-			CustomVideoExts: videoExts,
-			CustomRawExts:   rawExts,
+			BasePath:          path,
+			Delta:             durationDelta,
+			NoMoveMovie:       noMoveMovie,
+			NoMoveRaw:         noMoveRaw,
+			DryRun:            dryRun,
+			UseEXIF:           useEXIF,
+			UseGPS:            useGPS,
+			GPSRadius:         gpsRadius,
+			CustomPhotoExts:   photoExts,
+			CustomVideoExts:   videoExts,
+			CustomRawExts:     rawExts,
+			SeparateOrphanRaw: separateOrphanRaw,
 		}
 		return handler.Split(cfg)
 	}

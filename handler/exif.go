@@ -227,21 +227,21 @@ func isValidDateTime(t time.Time) bool {
 	return !t.After(maxFuture)
 }
 
-// findAssociatedJPEG finds the corresponding JPEG file for a RAW file
-// Ex: PHOTO_01.NEF → PHOTO_01.JPG or PHOTO_01.jpeg
+// findAssociatedJPEG finds the corresponding JPEG or HEIC file for a RAW file
+// Ex: PHOTO_01.NEF → PHOTO_01.JPG, PHOTO_01.jpeg, PHOTO_01.heic, or PHOTO_01.HEIC
 func findAssociatedJPEG(rawPath string) (string, error) {
 	dir := filepath.Dir(rawPath)
 	baseName := strings.TrimSuffix(filepath.Base(rawPath), filepath.Ext(rawPath))
 
-	// Essayer différentes extensions JPEG
-	jpegExtensions := []string{".jpg", ".JPG", ".jpeg", ".JPEG"}
+	// Essayer différentes extensions JPEG et HEIC (iPhone shoot RAW+HEIC)
+	photoExtensions := []string{".jpg", ".JPG", ".jpeg", ".JPEG", ".heic", ".HEIC"}
 
-	for _, ext := range jpegExtensions {
-		jpegPath := filepath.Join(dir, baseName+ext)
-		if _, err := os.Stat(jpegPath); err == nil {
-			return jpegPath, nil
+	for _, ext := range photoExtensions {
+		photoPath := filepath.Join(dir, baseName+ext)
+		if _, err := os.Stat(photoPath); err == nil {
+			return photoPath, nil
 		}
 	}
 
-	return "", fmt.Errorf("no associated JPEG found for %s", filepath.Base(rawPath))
+	return "", fmt.Errorf("no associated JPEG/HEIC found for %s", filepath.Base(rawPath))
 }

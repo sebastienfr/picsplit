@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -15,6 +16,7 @@ const (
 	// Folder configuration
 	movFolderName     = "mov"
 	rawFolderName     = "raw"
+	orphanFolderName  = "orphan"
 	dateFormatPattern = "2006 - 0102 - 1504"
 )
 
@@ -298,7 +300,23 @@ func processPicture(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFol
 	// Special handling for RAW files
 	if ctx.isRaw(fi.Name()) && !cfg.NoMoveRaw {
 		baseRawDir := filepath.Join(cfg.BasePath, datedFolder)
-		rawDir, err := findOrCreateFolder(baseRawDir, rawFolderName, cfg.DryRun)
+
+		// Déterminer si RAW va dans raw/ ou orphan/
+		targetFolder := rawFolderName
+
+		if cfg.SeparateOrphanRaw {
+			// Vérifier si RAW a un JPEG/HEIC associé
+			// Chercher dans la source (basePath) ET dans la destination (datedFolder)
+			// car le JPEG peut avoir déjà été déplacé
+			rawFilePath := filepath.Join(cfg.BasePath, fi.Name())
+			destFolder := filepath.Join(cfg.BasePath, datedFolder)
+			if !isRawPaired(rawFilePath, cfg.BasePath, destFolder) {
+				targetFolder = orphanFolderName
+				logrus.Debugf("orphan RAW (no JPEG/HEIC): %s → %s", fi.Name(), orphanFolderName)
+			}
+		}
+
+		rawDir, err := findOrCreateFolder(baseRawDir, targetFolder, cfg.DryRun)
 		if err != nil {
 			return err
 		}
@@ -374,4 +392,36 @@ func moveFile(basedir, src, dest string, dryRun bool) error {
 	}
 
 	return nil
+}
+
+// isRawPaired checks if a RAW file has an associated JPEG or HEIC
+// Searches in the source directory and optionally in the destination folder
+// (since JPEG may have already been moved during processing)
+func isRawPaired(rawPath string, basePath string, destFolder string) bool {
+	baseName := strings.TrimSuffix(filepath.Base(rawPath), filepath.Ext(rawPath))
+
+	// Extensions à chercher (JPEG et HEIC pour iPhone)
+	photoExtensions := []string{".jpg", ".JPG", ".jpeg", ".JPEG", ".heic", ".HEIC"}
+
+	// 1. Chercher dans le dossier source (basePath)
+	for _, ext := range photoExtensions {
+		photoPath := filepath.Join(basePath, baseName+ext)
+		if _, err := os.Stat(photoPath); err == nil {
+			logrus.Debugf("found paired photo in source: %s for RAW %s", photoPath, filepath.Base(rawPath))
+			return true
+		}
+	}
+
+	// 2. Chercher dans le dossier de destination (JPEG déjà déplacé)
+	if destFolder != "" {
+		for _, ext := range photoExtensions {
+			photoPath := filepath.Join(destFolder, baseName+ext)
+			if _, err := os.Stat(photoPath); err == nil {
+				logrus.Debugf("found paired photo in destination: %s for RAW %s", photoPath, filepath.Base(rawPath))
+				return true
+			}
+		}
+	}
+
+	return false // Orphelin
 }

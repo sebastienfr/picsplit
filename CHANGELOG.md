@@ -14,6 +14,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.0] - 2024-12-31
+
+### Added
+- **Orphan RAW separation**: New `orphan/` folder for unpaired RAW files (RAW without corresponding JPEG/HEIC)
+  - Enabled by default (`--separate-orphan` / `-so` flag)
+  - Helps photographers identify RAW files without JPEG after culling workflow
+  - Supports JPEG (`.jpg`, `.jpeg`) and HEIC (`.heic`) pairing for iPhone ProRAW
+  - Smart pairing detection: checks both source directory and destination folder (handles JPEG processed before RAW)
+- CLI flag: `--separate-orphan` / `-so` (default: `true`)
+- New test suite: `TestIsRawPaired` and `TestSplit_OrphanRawSeparation` (10 test cases)
+  - Covers both processing orders (JPEG before RAW, RAW before JPEG)
+
+### Changed
+- Improved `findAssociatedJPEG()` to support HEIC format (iPhone ProRAW+HEIC workflow)
+- Updated folder organization: `raw/` for paired RAW, `orphan/` for unpaired RAW
+
+### Technical
+- New config field: `Config.SeparateOrphanRaw` (default: `true`)
+- New constant: `orphanFolderName = "orphan"`
+- New function: `isRawPaired(rawPath, basePath) bool` in `handler/splitter.go`
+- Updated `processPicture()` to route RAW files to `raw/` or `orphan/` based on pairing status
+- Enhanced `findAssociatedJPEG()` with HEIC support (`.heic`, `.HEIC` extensions)
+
+### Documentation
+- New use case: "Photographer workflow: Culling RAW files" in README
+- Updated "Smart Organization" feature description with orphan folder mention
+- CLI Reference updated with `--separate-orphan` flag
+
+### Example
+```bash
+# Default behavior (orphan separation enabled)
+picsplit /photos
+
+# Disable orphan separation (old behavior)
+picsplit /photos --separate-orphan=false
+
+# Result structure:
+# photos/
+# └── 2024 - 1220 - 1400/
+#     ├── PHOTO_01.JPG
+#     ├── raw/              # Paired RAW
+#     │   └── PHOTO_01.NEF
+#     └── orphan/           # Unpaired RAW
+#         └── PHOTO_02.NEF
+```
+
+---
+
 ## [2.5.2] - 2024-12-31
 
 ### Added

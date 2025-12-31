@@ -1425,3 +1425,287 @@ func TestCollectMediaFilesWithMetadata_OnlyNonMedia(t *testing.T) {
 		t.Errorf("expected 0 media files, got %d", len(files))
 	}
 }
+
+// ========================================
+// Tests for Orphan RAW Separation (v2.6.0)
+// ========================================
+
+func TestIsRawPaired(t *testing.T) {
+	t.Run("RAW paired with JPEG same folder", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create RAW + JPEG pair
+		createTestFile(t, tmpDir, "PHOTO_01.NEF", time.Now())
+		createTestFile(t, tmpDir, "PHOTO_01.JPG", time.Now())
+
+		rawPath := filepath.Join(tmpDir, "PHOTO_01.NEF")
+		if !isRawPaired(rawPath, tmpDir, "") {
+			t.Error("RAW should be paired with JPEG in same folder")
+		}
+	})
+
+	t.Run("RAW paired with HEIC (iPhone)", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create RAW + HEIC pair (iPhone shoot RAW+HEIC)
+		createTestFile(t, tmpDir, "IMG_1234.DNG", time.Now())
+		createTestFile(t, tmpDir, "IMG_1234.HEIC", time.Now())
+
+		rawPath := filepath.Join(tmpDir, "IMG_1234.DNG")
+		if !isRawPaired(rawPath, tmpDir, "") {
+			t.Error("RAW should be paired with HEIC")
+		}
+	})
+
+	t.Run("RAW orphan (no JPEG/HEIC)", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create RAW without pair
+		createTestFile(t, tmpDir, "PHOTO_02.NEF", time.Now())
+
+		rawPath := filepath.Join(tmpDir, "PHOTO_02.NEF")
+		if isRawPaired(rawPath, tmpDir, "") {
+			t.Error("RAW should be orphan (no JPEG/HEIC)")
+		}
+	})
+
+	t.Run("case insensitive matching", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create RAW + lowercase jpeg
+		createTestFile(t, tmpDir, "PHOTO_03.CR2", time.Now())
+		createTestFile(t, tmpDir, "PHOTO_03.jpeg", time.Now())
+
+		rawPath := filepath.Join(tmpDir, "PHOTO_03.CR2")
+		if !isRawPaired(rawPath, tmpDir, "") {
+			t.Error("RAW should be paired with .jpeg (case insensitive)")
+		}
+	})
+
+	t.Run("RAW paired with JPEG already moved to destination", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create destination folder
+		destFolder := filepath.Join(tmpDir, "2024 - 0701 - 1400")
+		if err := os.Mkdir(destFolder, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// JPEG already moved to destination
+		createTestFile(t, destFolder, "PHOTO_04.JPG", time.Now())
+
+		// RAW still in source
+		createTestFile(t, tmpDir, "PHOTO_04.NEF", time.Now())
+
+		rawPath := filepath.Join(tmpDir, "PHOTO_04.NEF")
+		if !isRawPaired(rawPath, tmpDir, destFolder) {
+			t.Error("RAW should be paired with JPEG in destination folder")
+		}
+	})
+}
+
+func TestSplit_OrphanRawSeparation(t *testing.T) {
+	t.Run("separate orphan RAW enabled (default)", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 7, 1, 14, 0, 0, 0, time.Local)
+
+		// Create paired RAW+JPEG
+		createTestFile(t, tmpDir, "PHOTO_01.JPG", baseTime)
+		createTestFile(t, tmpDir, "PHOTO_01.NEF", baseTime)
+
+		// Create orphan RAW (no JPEG)
+		createTestFile(t, tmpDir, "PHOTO_02.NEF", baseTime)
+		createTestFile(t, tmpDir, "PHOTO_03.CR2", baseTime)
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			Delta:             1 * time.Hour,
+			NoMoveMovie:       false,
+			NoMoveRaw:         false,
+			DryRun:            false,
+			SeparateOrphanRaw: true, // Activé
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		datedFolder := "2024 - 0701 - 1400"
+
+		// Verify paired RAW is in raw/
+		pairedRawPath := filepath.Join(tmpDir, datedFolder, "raw", "PHOTO_01.NEF")
+		if _, err := os.Stat(pairedRawPath); os.IsNotExist(err) {
+			t.Error("paired RAW should be in raw/ folder")
+		}
+
+		// Verify orphan RAW files are in orphan/
+		orphan1Path := filepath.Join(tmpDir, datedFolder, "orphan", "PHOTO_02.NEF")
+		orphan2Path := filepath.Join(tmpDir, datedFolder, "orphan", "PHOTO_03.CR2")
+
+		if _, err := os.Stat(orphan1Path); os.IsNotExist(err) {
+			t.Error("orphan RAW PHOTO_02.NEF should be in orphan/ folder")
+		}
+		if _, err := os.Stat(orphan2Path); os.IsNotExist(err) {
+			t.Error("orphan RAW PHOTO_03.CR2 should be in orphan/ folder")
+		}
+	})
+
+	t.Run("separate orphan RAW disabled", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 7, 1, 14, 0, 0, 0, time.Local)
+
+		// Create paired + orphan RAW
+		createTestFile(t, tmpDir, "PHOTO_01.JPG", baseTime)
+		createTestFile(t, tmpDir, "PHOTO_01.NEF", baseTime)
+		createTestFile(t, tmpDir, "PHOTO_02.NEF", baseTime) // orphan
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			Delta:             1 * time.Hour,
+			NoMoveMovie:       false,
+			NoMoveRaw:         false,
+			DryRun:            false,
+			SeparateOrphanRaw: false, // Désactivé
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		datedFolder := "2024 - 0701 - 1400"
+
+		// Verify ALL RAW files are in raw/ (pas de séparation)
+		pairedRawPath := filepath.Join(tmpDir, datedFolder, "raw", "PHOTO_01.NEF")
+		orphanRawPath := filepath.Join(tmpDir, datedFolder, "raw", "PHOTO_02.NEF")
+
+		if _, err := os.Stat(pairedRawPath); os.IsNotExist(err) {
+			t.Error("paired RAW should be in raw/ folder")
+		}
+		if _, err := os.Stat(orphanRawPath); os.IsNotExist(err) {
+			t.Error("orphan RAW should also be in raw/ when feature disabled")
+		}
+
+		// Verify orphan/ folder was NOT created
+		orphanDir := filepath.Join(tmpDir, datedFolder, "orphan")
+		if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
+			t.Error("orphan/ folder should not exist when feature disabled")
+		}
+	})
+
+	t.Run("HEIC pairing (iPhone RAW+HEIC)", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 7, 1, 14, 0, 0, 0, time.Local)
+
+		// iPhone shoot RAW+HEIC (no JPEG)
+		createTestFile(t, tmpDir, "IMG_5678.HEIC", baseTime)
+		createTestFile(t, tmpDir, "IMG_5678.DNG", baseTime)
+
+		// Orphan RAW
+		createTestFile(t, tmpDir, "IMG_9999.DNG", baseTime)
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			Delta:             1 * time.Hour,
+			NoMoveMovie:       false,
+			NoMoveRaw:         false,
+			DryRun:            false,
+			SeparateOrphanRaw: true,
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		datedFolder := "2024 - 0701 - 1400"
+
+		// Verify HEIC-paired DNG is in raw/
+		pairedPath := filepath.Join(tmpDir, datedFolder, "raw", "IMG_5678.DNG")
+		if _, err := os.Stat(pairedPath); os.IsNotExist(err) {
+			t.Error("HEIC-paired DNG should be in raw/ folder")
+		}
+
+		// Verify orphan DNG is in orphan/
+		orphanPath := filepath.Join(tmpDir, datedFolder, "orphan", "IMG_9999.DNG")
+		if _, err := os.Stat(orphanPath); os.IsNotExist(err) {
+			t.Error("orphan DNG should be in orphan/ folder")
+		}
+	})
+
+	t.Run("RAW processed before JPEG (alphabetical order)", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 7, 1, 14, 0, 0, 0, time.Local)
+
+		// Create files where RAW comes before JPEG alphabetically
+		// "A_" prefix ensures RAW is processed first
+		createTestFile(t, tmpDir, "A_PHOTO.NEF", baseTime) // Processed FIRST
+		createTestFile(t, tmpDir, "A_PHOTO.jpg", baseTime) // Processed SECOND
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			Delta:             1 * time.Hour,
+			NoMoveMovie:       false,
+			NoMoveRaw:         false,
+			DryRun:            false,
+			SeparateOrphanRaw: true,
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		datedFolder := "2024 - 0701 - 1400"
+
+		// Verify RAW is in raw/ (not orphan/) even though processed before JPEG
+		pairedRawPath := filepath.Join(tmpDir, datedFolder, "raw", "A_PHOTO.NEF")
+		if _, err := os.Stat(pairedRawPath); os.IsNotExist(err) {
+			t.Error("RAW should be in raw/ folder even when processed before JPEG")
+		}
+
+		// Verify JPEG is in main folder
+		jpegPath := filepath.Join(tmpDir, datedFolder, "A_PHOTO.jpg")
+		if _, err := os.Stat(jpegPath); os.IsNotExist(err) {
+			t.Error("JPEG should be in main folder")
+		}
+
+		// Verify orphan/ folder was NOT created
+		orphanDir := filepath.Join(tmpDir, datedFolder, "orphan")
+		if _, err := os.Stat(orphanDir); !os.IsNotExist(err) {
+			t.Error("orphan/ folder should not exist when all RAW are paired")
+		}
+	})
+
+	t.Run("dry run with orphan separation", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 7, 1, 14, 0, 0, 0, time.Local)
+
+		createTestFile(t, tmpDir, "PHOTO_01.JPG", baseTime)
+		createTestFile(t, tmpDir, "PHOTO_01.NEF", baseTime)
+		createTestFile(t, tmpDir, "PHOTO_02.NEF", baseTime) // orphan
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			Delta:             1 * time.Hour,
+			NoMoveMovie:       false,
+			NoMoveRaw:         false,
+			DryRun:            true, // Dry run
+			SeparateOrphanRaw: true,
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		// Verify NO files were moved
+		if _, err := os.Stat(filepath.Join(tmpDir, "PHOTO_01.NEF")); os.IsNotExist(err) {
+			t.Error("RAW should not be moved in dry run")
+		}
+		if _, err := os.Stat(filepath.Join(tmpDir, "PHOTO_02.NEF")); os.IsNotExist(err) {
+			t.Error("orphan RAW should not be moved in dry run")
+		}
+	})
+}

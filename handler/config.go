@@ -26,6 +26,9 @@ type Config struct {
 	CustomPhotoExts []string // Additional photo extensions (e.g., ["png", "gif", "bmp"])
 	CustomVideoExts []string // Additional video extensions (e.g., ["mkv", "mpeg", "wmv"])
 	CustomRawExts   []string // Additional RAW extensions (e.g., ["rwx", "srw", "3fr"])
+
+	// Orphan RAW separation (v2.6.0+)
+	SeparateOrphanRaw bool // Separate unpaired RAW files (without JPEG/HEIC) to orphan/ folder
 }
 
 // Validate checks if the configuration is valid
@@ -61,13 +64,14 @@ func (c *Config) Validate() error {
 // DefaultConfig returns a configuration with default values
 func DefaultConfig(basePath string) *Config {
 	return &Config{
-		BasePath:    basePath,
-		Delta:       30 * time.Minute,
-		NoMoveMovie: false,
-		NoMoveRaw:   false,
-		DryRun:      false,
-		UseEXIF:     true,
-		UseGPS:      false,                  // GPS clustering désactivé par défaut (opt-in)
-		GPSRadius:   defaultGPSRadiusMeters, // 2000m = 2km
+		BasePath:          basePath,
+		Delta:             30 * time.Minute,
+		NoMoveMovie:       false,
+		NoMoveRaw:         false,
+		DryRun:            false,
+		UseEXIF:           true,
+		UseGPS:            false,                  // GPS clustering désactivé par défaut (opt-in)
+		GPSRadius:         defaultGPSRadiusMeters, // 2000m = 2km
+		SeparateOrphanRaw: true,                   // Activé par défaut (v2.6.0+)
 	}
 }

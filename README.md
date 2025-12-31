@@ -68,7 +68,8 @@ picsplit moves files on your filesystem. While extensively tested, you should NE
   Dry-run mode lets you preview all changes before applying them
 
 - 🗂️ **Smart Organization**  
-  Automatically separates RAW files and videos into dedicated subfolders
+  Automatically separates RAW files and videos into dedicated subfolders  
+  *NEW in v2.6.0:* Orphan RAW files (without JPEG/HEIC) go to `orphan/` folder for easy cleanup
 
 - 🌍 **Multi-Format Support**  
   JPG, HEIC, WebP, AVIF, NEF, CR2, DNG, ARW, MOV, MP4, and more
@@ -210,6 +211,44 @@ photoshoot/
     └── raw/
         ├── photo1.nef
         └── photo2.nef
+```
+
+---
+
+### 🗑️ Photographer workflow: Culling RAW files
+
+**Scenario**: You shoot in RAW+JPEG, cull bad JPEGs during review, but forget to delete corresponding RAW files.
+
+**Challenge**: After organizing, your `raw/` folder contains a mix of "good" RAW (with JPEG) and "bad" RAW (without JPEG).
+
+**Solution:**
+```bash
+# Orphan separation is enabled by default in v2.6.0+
+picsplit ./photoshoot
+```
+
+**Result:**
+```
+photoshoot/
+└── 2024 - 1220 - 1400/
+    ├── PHOTO_01.JPG       # Kept during culling ✅
+    ├── PHOTO_02.JPG       # Kept during culling ✅
+    ├── raw/               # Good RAW files (with JPEG)
+    │   ├── PHOTO_01.NEF
+    │   └── PHOTO_02.NEF
+    └── orphan/            # Bad RAW files (without JPEG)
+        ├── PHOTO_03.NEF   # Delete this ❌
+        └── PHOTO_04.NEF   # Delete this ❌
+```
+
+**Benefit**: Easily identify and delete unwanted RAW files without risking good ones.
+
+**Supported pairs**: JPEG (`.jpg`, `.jpeg`) and HEIC (`.heic` - iPhone ProRAW+HEIC workflow)
+
+**Disable feature:**
+```bash
+# Use old behavior (all RAW in raw/ folder)
+picsplit --separate-orphan=false ./photoshoot
 ```
 
 ---
@@ -412,6 +451,7 @@ picsplit merge --raw-ext rwx folder1 folder2 merged
 | `--verbose` | `-v` | `false` | Enable debug logging |
 | `--nomvmov` | `-nmm` | `false` | Don't separate videos into `mov/` folder |
 | `--nomvraw` | `-nmr` | `false` | Don't separate RAW into `raw/` folder |
+| `--separate-orphan` | `-so` | `true` | Separate unpaired RAW files to `orphan/` folder |
 | `--photo-ext` | `-pext` | - | Add custom photo extensions (e.g., `png,bmp`) |
 | `--video-ext` | `-vext` | - | Add custom video extensions (e.g., `mkv`) |
 | `--raw-ext` | `-rext` | - | Add custom RAW extensions (e.g., `rwx`) |
