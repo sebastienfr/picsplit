@@ -15,12 +15,9 @@ builds:
     env:
       - CGO_ENABLED=0
     
-    # Version information via ldflags (matching Makefile)
+    # Build flags (version info is handled by runtime/debug.ReadBuildInfo)
     ldflags:
       - -s -w
-      - -X main.Version={{.Version}}
-      - -X main.GitHash={{.ShortCommit}}
-      - -X main.BuildStmp={{.Timestamp}}
     
     # Target platforms
     goos:

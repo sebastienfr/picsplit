@@ -89,7 +89,7 @@ issues:
         - dupl
         - gosec
         - goconst
-        - govet  # fieldalignment is not critical in tests
+        - govet  # field alignment is not critical in tests
     
     # Exclude known issues
     - text: "weak cryptographic primitive"
