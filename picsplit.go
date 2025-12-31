@@ -334,6 +334,7 @@ func main() {
 		},
 		&cli.BoolFlag{
 			Name:        "use-exif",
+			Aliases:     []string{"ue"},
 			Value:       true,
 			Destination: &useEXIF,
 			Usage:       "Use EXIF metadata for dates (photos and videos)",

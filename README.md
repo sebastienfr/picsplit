@@ -404,7 +404,7 @@ picsplit merge --raw-ext rwx folder1 folder2 merged
 |------|-------|---------|-------------|
 | `--help` | `-h` | - | Show help message |
 | `--print-version` | `-V` | - | Display version information |
-| `--use-exif` | - | `true` | Use EXIF metadata for dates |
+| `--use-exif` | `-ue` | `true` | Use EXIF metadata for dates |
 | `--delta` | `-d` | `30m` | Time gap between sessions (e.g., `1h`, `45m`) |
 | `--gps` | `-g` | `false` | Enable GPS location clustering |
 | `--gps-radius` | `-gr` | `2000` | GPS clustering radius in meters |
