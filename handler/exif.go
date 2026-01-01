@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/abema/go-mp4"
 	"github.com/rwcarlsen/goexif/exif"
-	"github.com/sirupsen/logrus"
 )
 
 // DateSource indique l'origine de la date extraite
@@ -83,7 +83,7 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 			jpegPath, err := findAssociatedJPEG(filePath)
 			if err == nil {
 				filePath = jpegPath
-				logrus.Debugf("using associated JPEG %s for RAW file %s", jpegPath, info.Name())
+				slog.Debug("using associated JPEG for RAW file", "jpeg", jpegPath, "raw", info.Name())
 			}
 		}
 
@@ -92,16 +92,16 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 		if err == nil && isValidDateTime(dateTime) {
 			metadata.DateTime = dateTime
 			metadata.Source = DateSourceEXIF
-			logrus.Debugf("extracted EXIF date for %s: %s", info.Name(), dateTime.Format(time.RFC3339))
+			slog.Debug("extracted EXIF date", "file", info.Name(), "date", dateTime.Format(time.RFC3339))
 		} else {
-			logrus.Debugf("failed to extract EXIF date for %s: %v", info.Name(), err)
+			slog.Debug("failed to extract EXIF date", "file", info.Name(), "error", err)
 		}
 
 		// Extraire GPS
 		gps, err := extractGPS(filePath)
 		if err == nil && gps != nil {
 			metadata.GPS = gps
-			logrus.Debugf("extracted GPS for %s: %.4f,%.4f", info.Name(), gps.Lat, gps.Lon)
+			slog.Debug("extracted GPS coordinates", "file", info.Name(), "lat", gps.Lat, "lon", gps.Lon)
 		}
 	} else if ctx.isMovie(info.Name()) {
 		// Extraire métadonnées vidéo
@@ -109,9 +109,9 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 		if err == nil && isValidDateTime(dateTime) {
 			metadata.DateTime = dateTime
 			metadata.Source = DateSourceVideoMeta
-			logrus.Debugf("extracted video metadata for %s: %s", info.Name(), dateTime.Format(time.RFC3339))
+			slog.Debug("extracted video metadata", "file", info.Name(), "date", dateTime.Format(time.RFC3339))
 		} else {
-			logrus.Debugf("failed to extract video metadata for %s: %v", info.Name(), err)
+			slog.Debug("failed to extract video metadata", "file", info.Name(), "error", err)
 		}
 	}
 

@@ -1,9 +1,8 @@
 package handler
 
 import (
+	"log/slog"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -32,7 +31,7 @@ func ClusterByLocation(files []FileMetadata, radiusMeters float64) ([]LocationCl
 	}
 
 	if len(filesWithGPS) == 0 {
-		logrus.Debug("no files with GPS coordinates found")
+		slog.Debug("no files with GPS coordinates found")
 		return nil, filesWithoutGPS
 	}
 
@@ -87,7 +86,9 @@ func ClusterByLocation(files []FileMetadata, radiusMeters float64) ([]LocationCl
 		clusters = append(clusters, cluster)
 	}
 
-	logrus.Debugf("created %d location clusters from %d files with GPS", len(clusters), len(filesWithGPS))
+	slog.Debug("location clusters created",
+		"clusters", len(clusters),
+		"files_with_gps", len(filesWithGPS))
 
 	return clusters, filesWithoutGPS
 }
@@ -121,8 +122,10 @@ func GroupLocationByTime(cluster LocationCluster, delta time.Duration) [][]FileM
 	// Ajouter le dernier groupe
 	groups = append(groups, currentGroup)
 
-	logrus.Debugf("location %s: split into %d time-based groups (delta: %v)",
-		FormatLocationName(cluster.Centroid), len(groups), delta)
+	slog.Debug("location split into time-based groups",
+		"location", FormatLocationName(cluster.Centroid),
+		"groups", len(groups),
+		"delta", delta)
 
 	return groups
 }

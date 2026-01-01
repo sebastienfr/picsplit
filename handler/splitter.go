@@ -3,13 +3,12 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -50,13 +49,13 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 
 		info, err := entry.Info()
 		if err != nil {
-			logrus.Warnf("failed to get info for %s: %v", entry.Name(), err)
+			slog.Warn("failed to get file info", "file", entry.Name(), "error", err)
 			continue
 		}
 
 		// Use context to check if file is a media file
 		if !ctx.isPhoto(info.Name()) && !ctx.isMovie(info.Name()) {
-			logrus.Debugf("%s has unknown extension, skipping", info.Name())
+			slog.Debug("skipping file with unknown extension", "file", info.Name())
 			continue
 		}
 
@@ -67,7 +66,7 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 		if cfg.UseEXIF {
 			metadata, err = ExtractMetadata(ctx, filePath)
 			if err != nil || metadata.Source == DateSourceModTime {
-				logrus.Debugf("failed to extract metadata for %s, using ModTime", info.Name())
+				slog.Debug("failed to extract metadata, using ModTime", "file", info.Name())
 				exifFailCount++
 			}
 		} else {
@@ -87,8 +86,9 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 
 	// Mode strict : si au moins un fichier sans EXIF valide → fallback tous sur ModTime
 	if cfg.UseEXIF && exifFailCount > 0 {
-		logrus.Warnf("EXIF validation failed for %d/%d files, using file modification times for all files",
-			exifFailCount, len(mediaFiles))
+		slog.Warn("EXIF validation failed, using file modification times for all files",
+			"failed_count", exifFailCount,
+			"total_files", len(mediaFiles))
 
 		for i := range mediaFiles {
 			mediaFiles[i].DateTime = mediaFiles[i].FileInfo.ModTime()
@@ -198,11 +198,11 @@ func Split(cfg *Config) error {
 	}
 
 	if len(mediaFiles) == 0 {
-		logrus.Info("no media files found")
+		slog.Info("no media files found")
 		return nil
 	}
 
-	logrus.Infof("found %d media files", len(mediaFiles))
+	slog.Info("media files collected", "count", len(mediaFiles))
 
 	var groups []fileGroup
 
@@ -211,17 +211,18 @@ func Split(cfg *Config) error {
 		// GPS clustering: location FIRST, then time within each location
 		locationClusters, filesWithoutGPS := ClusterByLocation(mediaFiles, cfg.GPSRadius)
 
-		logrus.Infof("GPS clustering: %d location clusters, %d files without GPS",
-			len(locationClusters), len(filesWithoutGPS))
+		slog.Info("GPS clustering completed",
+			"location_clusters", len(locationClusters),
+			"files_without_gps", len(filesWithoutGPS))
 
 		// Traiter chaque cluster de localisation
 		for _, cluster := range locationClusters {
 			locationName := FormatLocationName(cluster.Centroid)
-			logrus.Debugf("processing location cluster: %s (%d files)", locationName, len(cluster.Files))
+			slog.Debug("processing location cluster", "location", locationName, "files", len(cluster.Files))
 
 			// Grouper par temps dans cette localisation
 			timeGroups := GroupLocationByTime(cluster, cfg.Delta)
-			logrus.Debugf("location %s split into %d time groups", locationName, len(timeGroups))
+			slog.Debug("location split into time groups", "location", locationName, "time_groups", len(timeGroups))
 
 			// Créer fileGroup pour chaque groupe temporel
 			for _, timeGroup := range timeGroups {
@@ -247,7 +248,9 @@ func Split(cfg *Config) error {
 			// Si des clusters de localisation existent, créer sous-dossier "NoLocation"
 			// Sinon, mettre directement à la racine (pas de nécessité de ségrégation)
 			if len(locationClusters) > 0 {
-				logrus.Infof("processing %d files without GPS in '%s' folder", len(filesWithoutGPS), GetNoLocationFolderName())
+				slog.Info("processing files without GPS in folder",
+					"count", len(filesWithoutGPS),
+					"folder", GetNoLocationFolderName())
 				for _, noGPSGroup := range noGPSGroups {
 					folderName := filepath.Join(GetNoLocationFolderName(), noGPSGroup.folderName)
 					groups = append(groups, fileGroup{
@@ -257,7 +260,8 @@ func Split(cfg *Config) error {
 					})
 				}
 			} else {
-				logrus.Infof("processing %d files without GPS at root (no location clusters)", len(filesWithoutGPS))
+				slog.Info("processing files without GPS at root (no location clusters)",
+					"count", len(filesWithoutGPS))
 				for _, noGPSGroup := range noGPSGroups {
 					groups = append(groups, fileGroup{
 						folderName: noGPSGroup.folderName,
@@ -276,12 +280,17 @@ func Split(cfg *Config) error {
 		groups = groupFilesByGaps(mediaFiles, cfg.Delta)
 	}
 
-	logrus.Infof("detected %d event groups (delta: %v)", len(groups), cfg.Delta)
+	slog.Info("event groups detected",
+		"count", len(groups),
+		"delta", cfg.Delta)
 
 	// 4. Traiter chaque groupe
 	for i, group := range groups {
-		logrus.Infof("[%d/%d] processing group %s (%d files)",
-			i+1, len(groups), group.folderName, len(group.files))
+		slog.Info("processing group",
+			"current", i+1,
+			"total", len(groups),
+			"folder", group.folderName,
+			"files", len(group.files))
 
 		if err := processGroup(cfg, ctx, group); err != nil {
 			return fmt.Errorf("failed to process group %s: %w", group.folderName, err)
@@ -293,7 +302,7 @@ func Split(cfg *Config) error {
 
 // processPicture handles the processing of picture files
 func processPicture(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFolder string) error {
-	logrus.Debugf("processing picture: %s → %s", fi.Name(), datedFolder)
+	slog.Debug("processing picture", "file", fi.Name(), "dest_folder", datedFolder)
 
 	destDir := datedFolder
 
@@ -312,7 +321,7 @@ func processPicture(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFol
 			destFolder := filepath.Join(cfg.BasePath, datedFolder)
 			if !isRawPaired(rawFilePath, cfg.BasePath, destFolder) {
 				targetFolder = orphanFolderName
-				logrus.Debugf("orphan RAW (no JPEG/HEIC): %s → %s", fi.Name(), orphanFolderName)
+				slog.Debug("orphan RAW file (no JPEG/HEIC)", "file", fi.Name(), "dest", orphanFolderName)
 			}
 		}
 
@@ -328,7 +337,7 @@ func processPicture(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFol
 
 // processMovie handles the processing of movie files
 func processMovie(cfg *Config, fi os.FileInfo, datedFolder string) error {
-	logrus.Debugf("processing movie: %s → %s", fi.Name(), datedFolder)
+	slog.Debug("processing movie", "file", fi.Name(), "dest_folder", datedFolder)
 
 	destDir := datedFolder
 
@@ -348,7 +357,7 @@ func processMovie(cfg *Config, fi os.FileInfo, datedFolder string) error {
 func findOrCreateFolder(basedir, name string, dryRun bool) (string, error) {
 	dirCreate := filepath.Join(basedir, name)
 
-	logrus.Debugf("finding or creating folder: %s", dirCreate)
+	slog.Debug("finding or creating folder", "path", dirCreate)
 
 	if dryRun {
 		return name, nil
@@ -381,11 +390,11 @@ func moveFile(basedir, src, dest string, dryRun bool) error {
 	dstPath := filepath.Join(basedir, dest, src)
 
 	if dryRun {
-		logrus.Infof("[DRY RUN] would move file: %s -> %s", srcPath, dstPath)
+		slog.Info("[DRY RUN] would move file", "source", srcPath, "dest", dstPath)
 		return nil
 	}
 
-	logrus.Infof("moving file: %s -> %s", srcPath, dstPath)
+	slog.Info("moving file", "source", srcPath, "dest", dstPath)
 
 	if err := os.Rename(srcPath, dstPath); err != nil {
 		return fmt.Errorf("failed to move %s to %s: %w", srcPath, dstPath, err)
@@ -407,7 +416,7 @@ func isRawPaired(rawPath string, basePath string, destFolder string) bool {
 	for _, ext := range photoExtensions {
 		photoPath := filepath.Join(basePath, baseName+ext)
 		if _, err := os.Stat(photoPath); err == nil {
-			logrus.Debugf("found paired photo in source: %s for RAW %s", photoPath, filepath.Base(rawPath))
+			slog.Debug("found paired photo in source", "photo", photoPath, "raw", filepath.Base(rawPath))
 			return true
 		}
 	}
@@ -417,7 +426,7 @@ func isRawPaired(rawPath string, basePath string, destFolder string) bool {
 		for _, ext := range photoExtensions {
 			photoPath := filepath.Join(destFolder, baseName+ext)
 			if _, err := os.Stat(photoPath); err == nil {
-				logrus.Debugf("found paired photo in destination: %s for RAW %s", photoPath, filepath.Base(rawPath))
+				slog.Debug("found paired photo in destination", "photo", photoPath, "raw", filepath.Base(rawPath))
 				return true
 			}
 		}

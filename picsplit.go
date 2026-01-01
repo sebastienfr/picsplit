@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/sebastienfr/picsplit/handler"
-	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
 
@@ -111,20 +111,19 @@ func parseExtensions(extString string) ([]string, error) {
 	return result, nil
 }
 
-// InitLog initializes the logrus logger
-func InitLog(verbose bool) {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		DisableColors:    true,
-		DisableTimestamp: true,
-	})
-
-	logrus.SetOutput(os.Stdout)
-
+// setupLogger initializes the slog logger with the specified verbosity level
+func setupLogger(verbose bool) {
+	var level slog.Level
 	if verbose {
-		logrus.SetLevel(logrus.DebugLevel)
+		level = slog.LevelDebug
 	} else {
-		logrus.SetLevel(logrus.WarnLevel)
+		level = slog.LevelWarn
 	}
+
+	opts := &slog.HandlerOptions{Level: level}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
 }
 
 // getBuildInfo returns version information from build metadata
@@ -238,7 +237,7 @@ func main() {
 				},
 				Action: func(c *cli.Context) error {
 					// Init logger
-					InitLog(c.Bool(flagVerbose))
+					setupLogger(c.Bool(flagVerbose))
 
 					// Print header
 					fmt.Println(string(header))
@@ -270,19 +269,19 @@ func main() {
 					}
 
 					// Debug info
-					logrus.Debugf("Merge configuration:")
-					logrus.Debugf("  Sources: %v", sourceFolders)
-					logrus.Debugf("  Target: %s", targetFolder)
-					logrus.Debugf("  Force: %t", c.Bool(flagForce))
-					logrus.Debugf("  DryRun: %t", c.Bool(flagDryRun))
+					slog.Debug("merge configuration",
+						"sources", sourceFolders,
+						"target", targetFolder,
+						"force", c.Bool(flagForce),
+						"dryrun", c.Bool(flagDryRun))
 					if len(photoExts) > 0 {
-						logrus.Debugf("  Custom photo ext: %s", strings.Join(photoExts, ", "))
+						slog.Debug("custom photo extensions", "extensions", strings.Join(photoExts, ", "))
 					}
 					if len(videoExts) > 0 {
-						logrus.Debugf("  Custom video ext: %s", strings.Join(videoExts, ", "))
+						slog.Debug("custom video extensions", "extensions", strings.Join(videoExts, ", "))
 					}
 					if len(rawExts) > 0 {
-						logrus.Debugf("  Custom raw ext: %s", strings.Join(rawExts, ", "))
+						slog.Debug("custom raw extensions", "extensions", strings.Join(rawExts, ", "))
 					}
 
 					// Execute merge
@@ -386,7 +385,7 @@ func main() {
 	// sub action are also possible
 	app.Action = func(c *cli.Context) error {
 		// init log options from command line params
-		InitLog(verbose)
+		setupLogger(verbose)
 
 		// print header
 		fmt.Println(string(header))
@@ -413,27 +412,26 @@ func main() {
 			return fmt.Errorf("invalid RAW extensions: %w", err)
 		}
 
-		logrus.Debug("* ----------------------------------------------------- *")
-		logrus.Debugf("| path                 : %s", path)
-		logrus.Debugf("| delta duration (min) : %0.f", durationDelta.Minutes())
-		logrus.Debugf("| dry run              : %t", dryRun)
-		logrus.Debugf("| no move movies       : %t", noMoveMovie)
-		logrus.Debugf("| no move raw          : %t", noMoveRaw)
-		logrus.Debugf("| verbose              : %t", verbose)
-		logrus.Debugf("| use EXIF             : %t", useEXIF)
-		logrus.Debugf("| use GPS clustering   : %t", useGPS)
-		logrus.Debugf("| GPS radius (meters)  : %.0f", gpsRadius)
+		slog.Debug("configuration",
+			"path", path,
+			"delta_minutes", durationDelta.Minutes(),
+			"dry_run", dryRun,
+			"no_move_movies", noMoveMovie,
+			"no_move_raw", noMoveRaw,
+			"verbose", verbose,
+			"use_exif", useEXIF,
+			"use_gps", useGPS,
+			"gps_radius_meters", gpsRadius,
+			"separate_orphan_raw", separateOrphanRaw)
 		if len(photoExts) > 0 {
-			logrus.Debugf("| custom photo ext     : %s", strings.Join(photoExts, ", "))
+			slog.Debug("custom photo extensions", "extensions", strings.Join(photoExts, ", "))
 		}
 		if len(videoExts) > 0 {
-			logrus.Debugf("| custom video ext     : %s", strings.Join(videoExts, ", "))
+			slog.Debug("custom video extensions", "extensions", strings.Join(videoExts, ", "))
 		}
 		if len(rawExts) > 0 {
-			logrus.Debugf("| custom raw ext       : %s", strings.Join(rawExts, ", "))
+			slog.Debug("custom raw extensions", "extensions", strings.Join(rawExts, ", "))
 		}
-		logrus.Debugf("| separate orphan RAW  : %t", separateOrphanRaw)
-		logrus.Debug("* ----------------------------------------------------- *")
 
 		// check path exists
 		fi, err := os.Stat(path)
@@ -465,7 +463,8 @@ func main() {
 	// run the app
 	err = app.Run(os.Args)
 	if err != nil {
-		logrus.Fatalf("runtime error %q\n", err)
+		slog.Error("runtime error", "error", err)
+		os.Exit(1)
 	}
 
 	os.Exit(0)

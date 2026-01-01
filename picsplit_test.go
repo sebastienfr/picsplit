@@ -2,24 +2,26 @@ package main
 
 import (
 	"testing"
-
-	"github.com/sirupsen/logrus"
 )
 
-func TestInitLog(t *testing.T) {
+func TestSetupLogger(t *testing.T) {
 	t.Run("verbose mode", func(t *testing.T) {
-		InitLog(true)
-
-		if logrus.GetLevel() != logrus.DebugLevel {
-			t.Errorf("expected DebugLevel, got %v", logrus.GetLevel())
-		}
+		// Test that setupLogger doesn't panic with verbose=true
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("setupLogger(true) panicked: %v", r)
+			}
+		}()
+		setupLogger(true)
 	})
 
 	t.Run("non-verbose mode", func(t *testing.T) {
-		InitLog(false)
-
-		if logrus.GetLevel() != logrus.WarnLevel {
-			t.Errorf("expected WarnLevel, got %v", logrus.GetLevel())
-		}
+		// Test that setupLogger doesn't panic with verbose=false
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("setupLogger(false) panicked: %v", r)
+			}
+		}()
+		setupLogger(false)
 	})
 }

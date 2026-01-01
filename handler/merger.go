@@ -3,11 +3,10 @@ package handler
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -287,14 +286,14 @@ func Merge(cfg *MergeConfig) error {
 	var globalResolution string
 	applyToAll := false
 
-	logrus.Infof("Starting merge operation:")
-	logrus.Infof("  Sources: %v", cfg.SourceFolders)
-	logrus.Infof("  Target: %s", cfg.TargetFolder)
+	slog.Info("starting merge operation",
+		"sources", cfg.SourceFolders,
+		"target", cfg.TargetFolder)
 	if cfg.Force {
-		logrus.Infof("  Mode: FORCE (auto-overwrite conflicts)")
+		slog.Info("merge mode: FORCE", "auto_overwrite", true)
 	}
 	if cfg.DryRun {
-		logrus.Infof("  Mode: DRY RUN (simulation)")
+		slog.Info("merge mode: DRY RUN", "simulation", true)
 	}
 
 	// Create target folder if it doesn't exist
@@ -303,12 +302,12 @@ func Merge(cfg *MergeConfig) error {
 			return fmt.Errorf("failed to create target folder: %w", err)
 		}
 	} else {
-		logrus.Infof("[DRY RUN] would create target folder: %s", cfg.TargetFolder)
+		slog.Info("[DRY RUN] would create target folder", "folder", cfg.TargetFolder)
 	}
 
 	// Process each source folder
 	for _, sourceFolder := range cfg.SourceFolders {
-		logrus.Infof("Processing source folder: %s", sourceFolder)
+		slog.Info("processing source folder", "folder", sourceFolder)
 
 		// Collect all files from source
 		files, err := collectFilesRecursive(sourceFolder)
@@ -316,7 +315,7 @@ func Merge(cfg *MergeConfig) error {
 			return err
 		}
 
-		logrus.Debugf("found %d files in %s", len(files), sourceFolder)
+		slog.Debug("files found in source", "count", len(files), "folder", sourceFolder)
 
 		// Process each file
 		for _, file := range files {
@@ -358,7 +357,7 @@ func Merge(cfg *MergeConfig) error {
 				} else {
 					if cfg.DryRun {
 						// In dry-run, simulate asking user
-						logrus.Warnf("[DRY RUN] conflict detected: %s (would ask user)", filepath.Base(targetPath))
+						slog.Warn("[DRY RUN] conflict detected (would ask user)", "file", filepath.Base(targetPath))
 						resolution = conflictSkip // Default for dry-run
 					} else {
 						// Ask user
@@ -371,7 +370,7 @@ func Merge(cfg *MergeConfig) error {
 						if applyAll {
 							applyToAll = true
 							globalResolution = resolution
-							logrus.Infof("Applying '%s' to all remaining conflicts", resolution)
+							slog.Info("applying resolution to all remaining conflicts", "resolution", resolution)
 						}
 					}
 				}
@@ -386,15 +385,15 @@ func Merge(cfg *MergeConfig) error {
 				case conflictRename:
 					finalTargetPath = generateUniqueName(targetPath)
 					stats.filesRenamed++
-					logrus.Infof("renaming to avoid conflict: %s", filepath.Base(finalTargetPath))
+					slog.Info("renaming to avoid conflict", "file", filepath.Base(finalTargetPath))
 				case conflictSkip:
 					stats.filesSkipped++
-					logrus.Infof("skipping file (keeping target): %s", filepath.Base(file))
+					slog.Info("skipping file (keeping target)", "file", filepath.Base(file))
 					continue // Skip this file
 				case conflictOverwrite:
 					finalTargetPath = targetPath
 					stats.filesOverwritten++
-					logrus.Infof("overwriting target: %s", filepath.Base(targetPath))
+					slog.Info("overwriting target", "file", filepath.Base(targetPath))
 				}
 			} else {
 				finalTargetPath = targetPath
@@ -410,46 +409,49 @@ func Merge(cfg *MergeConfig) error {
 
 			// Move the file
 			if cfg.DryRun {
-				logrus.Infof("[DRY RUN] would move: %s -> %s", file, finalTargetPath)
+				slog.Info("[DRY RUN] would move file", "source", file, "dest", finalTargetPath)
 			} else {
 				if err := os.Rename(file, finalTargetPath); err != nil {
 					return fmt.Errorf("failed to move %s to %s: %w", file, finalTargetPath, err)
 				}
 				stats.filesMoved++
-				logrus.Debugf("moved: %s -> %s", file, finalTargetPath)
+				slog.Debug("moved file", "source", file, "dest", finalTargetPath)
 			}
 		}
 
 		// Cleanup source folder after processing all files
 		if cfg.DryRun {
-			logrus.Infof("[DRY RUN] would delete source folder: %s", sourceFolder)
+			slog.Info("[DRY RUN] would delete source folder", "folder", sourceFolder)
 		} else {
 			// Remove the folder (including empty subdirectories like mov/, raw/)
 			if err := os.RemoveAll(sourceFolder); err != nil {
-				logrus.Warnf("failed to remove source folder %s: %v", sourceFolder, err)
+				slog.Warn("failed to remove source folder", "folder", sourceFolder, "error", err)
 			} else {
 				stats.foldersDeleted++
-				logrus.Infof("deleted source folder: %s", sourceFolder)
+				slog.Info("deleted source folder", "folder", sourceFolder)
 			}
 		}
 	}
 
 	// Print summary
 	fmt.Println()
-	logrus.Info("=== Merge Summary ===")
-	logrus.Infof("Files processed: %d", stats.filesProcessed)
-	logrus.Infof("Files moved: %d", stats.filesMoved)
+	slog.Info("=== Merge Summary ===")
+	slog.Info("merge statistics",
+		"files_processed", stats.filesProcessed,
+		"files_moved", stats.filesMoved)
 	if stats.conflicts > 0 {
-		logrus.Infof("Conflicts detected: %d", stats.conflicts)
-		logrus.Infof("  - Renamed: %d", stats.filesRenamed)
-		logrus.Infof("  - Skipped: %d", stats.filesSkipped)
-		logrus.Infof("  - Overwritten: %d", stats.filesOverwritten)
+		slog.Info("conflicts detected",
+			"total", stats.conflicts,
+			"renamed", stats.filesRenamed,
+			"skipped", stats.filesSkipped,
+			"overwritten", stats.filesOverwritten)
 	}
-	logrus.Infof("Source folders deleted: %d", stats.foldersDeleted)
-	logrus.Infof("Target folder: %s", cfg.TargetFolder)
+	slog.Info("cleanup completed",
+		"folders_deleted", stats.foldersDeleted,
+		"target_folder", cfg.TargetFolder)
 
 	if cfg.DryRun {
-		logrus.Info("DRY RUN completed - no files were actually moved")
+		slog.Info("DRY RUN completed - no files were actually moved")
 	}
 
 	return nil
