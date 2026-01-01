@@ -274,50 +274,59 @@ picsplit --video-ext dng --use-exif --delta 2h ./wedding-footage
 
 picsplit évolue continuellement avec de nouvelles fonctionnalités basées sur les retours utilisateurs. Voici les prochaines versions planifiées :
 
-### 🚧 v2.7.0 - Logging & Observability (Q1 2026)
+### ✅ v2.7.0 - Logging & Observability (Released - January 2026)
 
 **Objectif** : Améliorer le feedback utilisateur et l'observabilité pendant l'exécution.
 
-**Nouvelles fonctionnalités** :
+**Fonctionnalités livrées** :
 
-- **Logs structurés** ([#7](https://github.com/sebastienfr/picsplit/issues/7))  
+- ✅ **Logs structurés** ([#7](https://github.com/sebastienfr/picsplit/issues/7))  
   Migration vers `log/slog` (stdlib Go) pour des logs typés et performants
 
-- **Niveaux de log configurables** ([#8](https://github.com/sebastienfr/picsplit/issues/8))  
+- ✅ **Niveaux de log configurables** ([#8](https://github.com/sebastienfr/picsplit/issues/8))  
   `--log-level debug|info|warn|error` + formats Text/JSON (`--log-format`)
 
-- **Barre de progression temps réel** ([#9](https://github.com/sebastienfr/picsplit/issues/9))  
-  Affichage du % d'avancement, temps écoulé/restant, vitesse de traitement
+- ✅ **Barre de progression temps réel** ([#9](https://github.com/sebastienfr/picsplit/issues/9))  
+  Affichage du % d'avancement avec détection automatique TTY
 
-- **Summary enrichi** ([#10](https://github.com/sebastienfr/picsplit/issues/10))  
-  Métriques détaillées (durée, throughput, stats par type de fichier, erreurs claires)
+- ✅ **Summary enrichi avec métriques** ([#10](https://github.com/sebastienfr/picsplit/issues/10))  
+  Métriques détaillées (durée, throughput, stats par type, erreurs/warnings)
+
+- ✅ **Erreurs typées avec contexte** ([#11](https://github.com/sebastienfr/picsplit/issues/11))  
+  Messages d'erreur structurés avec suggestions de correction automatiques
 
 **Exemple de nouveau summary** :
 ```
 === Processing Summary ===
 Duration: 2m 35s
-Files processed: 1,245 / 1,245 (100%)
+Files processed: 1,242 / 1,245 (99.8%)
+File breakdown:
   - Photos: 980 (78.7%)
   - Videos: 165 (13.3%)
   - RAW: 100 (8.0%)
-Throughput: 158 MB/s
+Groups created: 12
+Disk usage: 24.5 GB moved, 158.0 MB/s throughput
 
-✓ Operation completed successfully
+❌ Critical errors (3):
+  [Permission] read_file: /photos/IMG_001.jpg
+    → chmod +r /photos/IMG_001.jpg
+
+⚠ Warnings (15):
+  [EXIF] No associated JPEG - using ModTime fallback
+
+⚠ Operation completed with 3 errors
 ```
 
 ---
 
-### 🚀 v2.8.0 - Robustness & Advanced Features (Q2 2026)
+### 🚀 v2.8.0 - Robustness & Advanced Features (Q1 2026)
 
 **Objectif** : Renforcer la robustesse avec gestion d'erreurs avancée et nouveaux modes.
 
 **Nouvelles fonctionnalités** :
 
-- **Erreurs typées avec contexte** ([#11](https://github.com/sebastienfr/picsplit/issues/11))  
-  Messages d'erreur structurés avec suggestions de correction automatiques
-
 - **Mode continue-on-error** ([#12](https://github.com/sebastienfr/picsplit/issues/12))  
-  `--continue-on-error` pour traiter tous les fichiers possibles sans s'arrêter au premier échec
+  Traiter tous les fichiers possibles sans s'arrêter au premier échec (comportement par défaut depuis v2.7.0)
 
 - **⚠️ Mode validation rapide** ([#13](https://github.com/sebastienfr/picsplit/issues/13))  
   `--mode validate|dryrun|run` pour pré-vérification ultra-rapide (5s vs 2m)  
@@ -425,7 +434,19 @@ picsplit --use-exif=false ./photos
 #### Preview before applying
 ```bash
 # Dry run mode (no files moved)
-picsplit --dryrun -v ./photos
+picsplit --dryrun ./photos
+```
+
+#### Configure logging
+```bash
+# Debug mode with detailed logs
+picsplit --log-level debug ./photos
+
+# JSON output for parsing/monitoring
+picsplit --log-format json ./photos > processing.log
+
+# Quiet mode (errors only)
+picsplit --log-level error ./photos
 ```
 
 #### Don't separate RAW/videos
@@ -477,8 +498,8 @@ picsplit merge folder1 folder2 merged-folder
 # Force overwrite all conflicts
 picsplit merge folder1 folder2 merged --force
 
-# Preview merge operations
-picsplit merge folder1 folder2 merged --dryrun -v
+# Preview merge operations  
+picsplit merge folder1 folder2 merged --dryrun
 ```
 
 **Conflict resolution options:**
@@ -530,7 +551,8 @@ picsplit merge --raw-ext rwx folder1 folder2 merged
 | `--gps` | `-g` | `false` | Enable GPS location clustering |
 | `--gps-radius` | `-gr` | `2000` | GPS clustering radius in meters |
 | `--dryrun` | `-dr` | `false` | Preview changes without moving files |
-| `--verbose` | `-v` | `false` | Enable debug logging |
+| `--log-level` | - | `info` | Log level: `debug`, `info`, `warn`, `error` |
+| `--log-format` | - | `text` | Log format: `text` or `json` |
 | `--nomvmov` | `-nmm` | `false` | Don't separate videos into `mov/` folder |
 | `--nomvraw` | `-nmr` | `false` | Don't separate RAW into `raw/` folder |
 | `--separate-orphan` | `-so` | `true` | Separate unpaired RAW files to `orphan/` folder |
@@ -544,7 +566,8 @@ picsplit merge --raw-ext rwx folder1 folder2 merged
 |------|---------|-------------|
 | `--force` | `false` | Auto-overwrite conflicts |
 | `--dryrun` | `false` | Preview merge operations |
-| `--verbose` | `false` | Enable debug logging |
+| `--log-level` | `info` | Log level: `debug`, `info`, `warn`, `error` |
+| `--log-format` | `text` | Log format: `text` or `json` |
 
 **Full help:**
 ```bash
@@ -696,7 +719,8 @@ GitHub Actions will automatically build and publish the release.
 **Technology Stack:**
 - [Go 1.25](https://golang.org) - Programming language
 - [urfave/cli v2](https://github.com/urfave/cli) - CLI framework
-- [logrus](https://github.com/sirupsen/logrus) - Structured logging
+- [log/slog](https://pkg.go.dev/log/slog) - Structured logging (Go stdlib)
+- [progressbar/v3](https://github.com/schollz/progressbar) - Real-time progress display
 - [goexif](https://github.com/rwcarlsen/goexif) - EXIF parsing
 - [go-mp4](https://github.com/abema/go-mp4) - Video metadata extraction
 
