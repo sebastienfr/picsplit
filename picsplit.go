@@ -34,9 +34,6 @@ var (
 	// dryRun -dryrun : print the modification to be done without really moving the files
 	dryRun = false
 
-	// verbose -v : print the detailed logs to the output
-	verbose = false
-
 	// useEXIF -use-exif : use EXIF metadata for dates (photos and videos)
 	useEXIF = true
 
@@ -83,7 +80,6 @@ const (
 	// Flag names
 	flagForce     = "force"
 	flagDryRun    = "dryrun"
-	flagVerbose   = "verbose"
 	flagLogLevel  = "log-level"
 	flagLogFormat = "log-format"
 )
@@ -235,11 +231,6 @@ func main() {
 						Aliases: []string{"dr"},
 						Usage:   "Simulate merge without moving files",
 					},
-					&cli.BoolFlag{
-						Name:    flagVerbose,
-						Aliases: []string{"v"},
-						Usage:   "Print detailed logs (deprecated: use --log-level debug)",
-					},
 					&cli.StringFlag{
 						Name:    flagLogLevel,
 						Aliases: []string{"l"},
@@ -269,12 +260,8 @@ func main() {
 					},
 				},
 				Action: func(c *cli.Context) error {
-					// Init logger - support legacy --verbose flag
-					logLevel := c.String(flagLogLevel)
-					if c.Bool(flagVerbose) && logLevel == defaultLogLevel {
-						logLevel = "debug"
-					}
-					setupLogger(logLevel, c.String(flagLogFormat))
+					// Init logger
+					setupLogger(c.String(flagLogLevel), c.String(flagLogFormat))
 
 					// Print header
 					fmt.Println(string(header))
@@ -365,12 +352,6 @@ func main() {
 			Destination: &dryRun,
 			Usage:       "Only print actions to do, do not move physically the files",
 		},
-		&cli.BoolFlag{
-			Name:        "verbose",
-			Aliases:     []string{"v"},
-			Destination: &verbose,
-			Usage:       "Print debug information (deprecated: use --log-level debug)",
-		},
 		&cli.StringFlag{
 			Name:    flagLogLevel,
 			Aliases: []string{"l"},
@@ -433,12 +414,8 @@ func main() {
 	// main action
 	// sub action are also possible
 	app.Action = func(c *cli.Context) error {
-		// init log options from command line params - support legacy --verbose flag
-		logLevel := c.String(flagLogLevel)
-		if verbose && logLevel == defaultLogLevel {
-			logLevel = "debug"
-		}
-		setupLogger(logLevel, c.String(flagLogFormat))
+		// init log options from command line params
+		setupLogger(c.String(flagLogLevel), c.String(flagLogFormat))
 
 		// print header
 		fmt.Println(string(header))
@@ -471,7 +448,6 @@ func main() {
 			"dry_run", dryRun,
 			"no_move_movies", noMoveMovie,
 			"no_move_raw", noMoveRaw,
-			"verbose", verbose,
 			"use_exif", useEXIF,
 			"use_gps", useGPS,
 			"gps_radius_meters", gpsRadius,
@@ -509,7 +485,7 @@ func main() {
 			CustomVideoExts:   videoExts,
 			CustomRawExts:     rawExts,
 			SeparateOrphanRaw: separateOrphanRaw,
-			LogLevel:          logLevel,
+			LogLevel:          c.String(flagLogLevel),
 			LogFormat:         c.String(flagLogFormat),
 		}
 		return handler.Split(cfg)
