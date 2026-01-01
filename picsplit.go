@@ -66,8 +66,10 @@ var (
 
 const (
 	// Default configuration values
-	defaultPath  = "."
-	defaultDelta = 30 * time.Minute
+	defaultPath      = "."
+	defaultDelta     = 30 * time.Minute
+	defaultLogLevel  = "info"
+	defaultLogFormat = "text"
 
 	// Application metadata
 	appName        = "picsplit"
@@ -79,9 +81,11 @@ const (
 	cmdMerge = "merge"
 
 	// Flag names
-	flagForce   = "force"
-	flagDryRun  = "dryrun"
-	flagVerbose = "verbose"
+	flagForce     = "force"
+	flagDryRun    = "dryrun"
+	flagVerbose   = "verbose"
+	flagLogLevel  = "log-level"
+	flagLogFormat = "log-format"
 )
 
 // parseExtensions parses comma-separated extension string into slice
@@ -111,17 +115,34 @@ func parseExtensions(extString string) ([]string, error) {
 	return result, nil
 }
 
-// setupLogger initializes the slog logger with the specified verbosity level
-func setupLogger(verbose bool) {
+// setupLogger initializes the slog logger with the specified level and format
+func setupLogger(logLevel, logFormat string) {
 	var level slog.Level
-	if verbose {
+	switch strings.ToLower(logLevel) {
+	case "debug":
 		level = slog.LevelDebug
-	} else {
+	case "info":
+		level = slog.LevelInfo
+	case "warn", "warning":
 		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo // Default to info if invalid
 	}
 
 	opts := &slog.HandlerOptions{Level: level}
-	handler := slog.NewTextHandler(os.Stdout, opts)
+
+	var handler slog.Handler
+	switch strings.ToLower(logFormat) {
+	case "json":
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	case "text":
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	default:
+		handler = slog.NewTextHandler(os.Stdout, opts) // Default to text if invalid
+	}
+
 	logger := slog.New(handler)
 	slog.SetDefault(logger)
 }
@@ -217,7 +238,19 @@ func main() {
 					&cli.BoolFlag{
 						Name:    flagVerbose,
 						Aliases: []string{"v"},
-						Usage:   "Print detailed logs",
+						Usage:   "Print detailed logs (deprecated: use --log-level debug)",
+					},
+					&cli.StringFlag{
+						Name:    flagLogLevel,
+						Aliases: []string{"l"},
+						Value:   defaultLogLevel,
+						Usage:   "Set log level (debug, info, warn, error)",
+					},
+					&cli.StringFlag{
+						Name:    flagLogFormat,
+						Aliases: []string{"lf"},
+						Value:   defaultLogFormat,
+						Usage:   "Set log format (text, json)",
 					},
 					&cli.StringFlag{
 						Name:    "photo-ext",
@@ -236,8 +269,12 @@ func main() {
 					},
 				},
 				Action: func(c *cli.Context) error {
-					// Init logger
-					setupLogger(c.Bool(flagVerbose))
+					// Init logger - support legacy --verbose flag
+					logLevel := c.String(flagLogLevel)
+					if c.Bool(flagVerbose) && logLevel == defaultLogLevel {
+						logLevel = "debug"
+					}
+					setupLogger(logLevel, c.String(flagLogFormat))
 
 					// Print header
 					fmt.Println(string(header))
@@ -332,7 +369,19 @@ func main() {
 			Name:        "verbose",
 			Aliases:     []string{"v"},
 			Destination: &verbose,
-			Usage:       "Print debug information",
+			Usage:       "Print debug information (deprecated: use --log-level debug)",
+		},
+		&cli.StringFlag{
+			Name:    flagLogLevel,
+			Aliases: []string{"l"},
+			Value:   defaultLogLevel,
+			Usage:   "Set log level (debug, info, warn, error)",
+		},
+		&cli.StringFlag{
+			Name:    flagLogFormat,
+			Aliases: []string{"lf"},
+			Value:   defaultLogFormat,
+			Usage:   "Set log format (text, json)",
 		},
 		&cli.BoolFlag{
 			Name:        "use-exif",
@@ -384,8 +433,12 @@ func main() {
 	// main action
 	// sub action are also possible
 	app.Action = func(c *cli.Context) error {
-		// init log options from command line params
-		setupLogger(verbose)
+		// init log options from command line params - support legacy --verbose flag
+		logLevel := c.String(flagLogLevel)
+		if verbose && logLevel == defaultLogLevel {
+			logLevel = "debug"
+		}
+		setupLogger(logLevel, c.String(flagLogFormat))
 
 		// print header
 		fmt.Println(string(header))
