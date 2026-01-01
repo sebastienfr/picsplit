@@ -348,6 +348,73 @@ func getTestMP4Fixture() string {
 	return filepath.Join("testdata", "fixture.mp4")
 }
 
+// createTestMP4WithTimestamp creates a temporary MP4 file with a custom creation timestamp
+// by reading the fixture and modifying the mvhd box creation_time field
+func createTestMP4WithTimestamp(t *testing.T, creationTime time.Time) string {
+	t.Helper()
+
+	// Read the base fixture
+	fixtureData, err := os.ReadFile(getTestMP4Fixture())
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	// Convert time to MP4 timestamp (seconds since Jan 1, 1904 UTC)
+	const mp4Epoch = 2082844800 // seconds between Jan 1, 1904 and Jan 1, 1970
+	newTimestamp := uint32(creationTime.Unix() + mp4Epoch)
+
+	// Find and modify the mvhd creation_time
+	// Search for "mvhd" box signature
+	mvhdIndex := -1
+	for i := 0; i < len(fixtureData)-4; i++ {
+		if fixtureData[i] == 'm' && fixtureData[i+1] == 'v' &&
+			fixtureData[i+2] == 'h' && fixtureData[i+3] == 'd' {
+			mvhdIndex = i
+			break
+		}
+	}
+
+	if mvhdIndex == -1 {
+		t.Fatal("mvhd box not found in fixture")
+	}
+
+	// Create a copy of the data
+	modifiedData := make([]byte, len(fixtureData))
+	copy(modifiedData, fixtureData)
+
+	// mvhd structure after "mvhd" (4 bytes):
+	// - version (1 byte) + flags (3 bytes) = offset +4
+	// - creation_time (4 bytes for version 0) = offset +8
+	// - modification_time (4 bytes) = offset +12
+	creationTimeOffset := mvhdIndex + 8
+
+	// Verify we're in bounds
+	if creationTimeOffset+4 > len(modifiedData) {
+		t.Fatal("mvhd creation_time offset out of bounds")
+	}
+
+	// Write new timestamp (big-endian)
+	modifiedData[creationTimeOffset] = byte(newTimestamp >> 24)
+	modifiedData[creationTimeOffset+1] = byte(newTimestamp >> 16)
+	modifiedData[creationTimeOffset+2] = byte(newTimestamp >> 8)
+	modifiedData[creationTimeOffset+3] = byte(newTimestamp)
+
+	// Also update modification_time to match
+	modifiedData[creationTimeOffset+4] = byte(newTimestamp >> 24)
+	modifiedData[creationTimeOffset+5] = byte(newTimestamp >> 16)
+	modifiedData[creationTimeOffset+6] = byte(newTimestamp >> 8)
+	modifiedData[creationTimeOffset+7] = byte(newTimestamp)
+
+	// Write to temp file
+	tempDir := t.TempDir()
+	tempMP4 := filepath.Join(tempDir, "test_modified.mp4")
+	if err := os.WriteFile(tempMP4, modifiedData, 0600); err != nil {
+		t.Fatalf("failed to write modified MP4: %v", err)
+	}
+
+	return tempMP4
+}
+
 func TestExtractEXIFDate_WithValidEXIF(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test_exif.jpg")
@@ -569,10 +636,28 @@ func TestExtractMetadata_VideoFile(t *testing.T) {
 }
 
 func TestExtractMetadata_VideoWithInvalidDate(t *testing.T) {
-	// NOTE: With static fixture, we can't test invalid date fallback.
-	// This test is covered by TestExtractMetadata_MovieFallback which uses a broken AVI file.
-	// Invalid video dates would require programmatic MP4 generation which is complex.
-	t.Skip("Skipping - requires dynamic MP4 generation to test invalid date fallback")
+	// Create MP4 with invalid date (before 1990)
+	invalidTime := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	mp4Path := createTestMP4WithTimestamp(t, invalidTime)
+
+	// Extract metadata
+	ctx := newDefaultExecutionContext()
+	metadata, err := ExtractMetadata(ctx, mp4Path)
+	if err != nil {
+		t.Fatalf("ExtractMetadata() failed: %v", err)
+	}
+
+	// Should fallback to ModTime because video date is invalid
+	if metadata.Source != DateSourceModTime {
+		t.Errorf("ExtractMetadata() source = %v, want %v (should fallback for invalid video date)", metadata.Source, DateSourceModTime)
+	}
+
+	// DateTime should be file's ModTime, not the invalid video timestamp
+	expectedTime := metadata.FileInfo.ModTime().Truncate(time.Second)
+	actualTime := metadata.DateTime.Truncate(time.Second)
+	if !expectedTime.Equal(actualTime) {
+		t.Errorf("ExtractMetadata() DateTime = %v, want %v", actualTime, expectedTime)
+	}
 }
 
 func TestExtractMetadata_PhotoWithInvalidEXIFDate(t *testing.T) {
