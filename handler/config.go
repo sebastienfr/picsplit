@@ -29,6 +29,10 @@ type Config struct {
 
 	// Orphan RAW separation (v2.6.0+)
 	SeparateOrphanRaw bool // Separate unpaired RAW files (without JPEG/HEIC) to orphan/ folder
+
+	// Logging configuration (v2.7.0+)
+	LogLevel  string // Log level: debug, info, warn, error
+	LogFormat string // Log format: text, json
 }
 
 // Validate checks if the configuration is valid

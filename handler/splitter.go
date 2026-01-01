@@ -284,7 +284,9 @@ func Split(cfg *Config) error {
 		"count", len(groups),
 		"delta", cfg.Delta)
 
-	// 4. Traiter chaque groupe
+	// 4. Traiter chaque groupe avec barre de progression
+	bar := createProgressBar(len(groups), "Processing groups", cfg.LogLevel, cfg.LogFormat)
+
 	for i, group := range groups {
 		slog.Info("processing group",
 			"current", i+1,
@@ -294,6 +296,10 @@ func Split(cfg *Config) error {
 
 		if err := processGroup(cfg, ctx, group); err != nil {
 			return fmt.Errorf("failed to process group %s: %w", group.folderName, err)
+		}
+
+		if bar != nil {
+			_ = bar.Add(1)
 		}
 	}
 

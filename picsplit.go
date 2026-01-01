@@ -509,6 +509,8 @@ func main() {
 			CustomVideoExts:   videoExts,
 			CustomRawExts:     rawExts,
 			SeparateOrphanRaw: separateOrphanRaw,
+			LogLevel:          logLevel,
+			LogFormat:         c.String(flagLogFormat),
 		}
 		return handler.Split(cfg)
 	}
