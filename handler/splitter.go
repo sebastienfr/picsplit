@@ -204,6 +204,38 @@ func Split(cfg *Config) error {
 
 	slog.Info("media files collected", "count", len(mediaFiles))
 
+	// Initialize processing statistics
+	stats := &ProcessingStats{
+		StartTime:  time.Now(),
+		TotalFiles: len(mediaFiles),
+	}
+	defer func() {
+		stats.EndTime = time.Now()
+		stats.PrintSummary(cfg.DryRun)
+	}()
+
+	// Count file types and ModTime fallback
+	for _, mf := range mediaFiles {
+		fileName := mf.FileInfo.Name()
+		if ctx.isPhoto(fileName) {
+			if ctx.isRaw(fileName) {
+				stats.RawCount++
+			} else {
+				stats.PhotoCount++
+			}
+		} else if ctx.isMovie(fileName) {
+			stats.VideoCount++
+		}
+
+		// Track ModTime fallback
+		if mf.Source == DateSourceModTime {
+			stats.ModTimeFallbackCount++
+		}
+
+		// Track total bytes
+		stats.TotalBytes += mf.FileInfo.Size()
+	}
+
 	var groups []fileGroup
 
 	// 2. GPS clustering mode ou mode temporel classique
@@ -284,6 +316,9 @@ func Split(cfg *Config) error {
 		"count", len(groups),
 		"delta", cfg.Delta)
 
+	// Track groups created
+	stats.GroupsCreated = len(groups)
+
 	// 4. Traiter chaque groupe avec barre de progression
 	bar := createProgressBar(len(groups), "Processing groups", cfg.LogLevel, cfg.LogFormat)
 
@@ -295,7 +330,19 @@ func Split(cfg *Config) error {
 			"files", len(group.files))
 
 		if err := processGroup(cfg, ctx, group); err != nil {
-			return fmt.Errorf("failed to process group %s: %w", group.folderName, err)
+			// Track error
+			stats.Errors = append(stats.Errors, &PicsplitError{
+				Type:    ErrTypeIO,
+				Op:      "process_group",
+				Path:    group.folderName,
+				Err:     err,
+				Details: map[string]string{"file_count": fmt.Sprintf("%d", len(group.files))},
+			})
+			slog.Error("failed to process group", "folder", group.folderName, "error", err)
+			// Continue processing other groups instead of failing completely
+		} else {
+			// Track successfully processed files
+			stats.ProcessedFiles += len(group.files)
 		}
 
 		if bar != nil {
