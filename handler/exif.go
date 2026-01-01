@@ -152,6 +152,12 @@ func extractVideoMetadata(filePath string) (time.Time, error) {
 
 	// Parser le fichier MP4
 	_, err = mp4.ReadBoxStructure(f, func(h *mp4.ReadHandle) (interface{}, error) {
+		// Expand container boxes (moov, trak, etc.) to read their children
+		if h.BoxInfo.Type == mp4.BoxTypeMoov() || h.BoxInfo.Type == mp4.BoxTypeTrak() {
+			// Expand to read child boxes
+			return h.Expand()
+		}
+
 		// Chercher le box mvhd (movie header) qui contient creation_time
 		box, _, err := h.ReadPayload()
 		if err != nil {

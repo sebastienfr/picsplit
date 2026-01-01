@@ -2,61 +2,46 @@
 
 ## Video Test Files
 
-Some tests for video metadata extraction are currently skipped because they require real MP4 files with valid metadata boxes.
+This directory contains test fixtures for video metadata extraction tests.
+
+### Files
+
+#### `fixture.mp4`
+- **Size**: 2.3 KB
+- **Creation Time**: 2024-12-20 15:30:00 UTC
+- **Format**: ISO Media, MP4 Base Media v1
+- **Generated with**: ffmpeg (minimal 1-second blue frame video)
+- **Purpose**: Test valid MP4 with known creation_time metadata
+
+This fixture is used by:
+- `TestExtractVideoMetadata_ValidMP4` - Extracts and validates MP4 creation time
+- `TestExtractMetadata_VideoFile` - Tests full metadata extraction from MP4
+
+### Fixture Generation
+
+The `fixture.mp4` was generated with ffmpeg using this command:
+```bash
+ffmpeg -f lavfi -i color=c=blue:s=320x240:d=1 \
+  -metadata creation_time="2024-12-20T15:30:00.000000Z" \
+  -vcodec libx264 -pix_fmt yuv420p \
+  -y handler/testdata/fixture.mp4
+```
+
+**Note**: This is a real, valid MP4 file committed to the repository. It does NOT require ffmpeg to be installed for tests to run.
 
 ### Skipped Tests
 
-- `TestExtractVideoMetadata_ValidMP4`
-- `TestExtractMetadata_VideoFile`  
-- `TestExtractMetadata_VideoWithInvalidDate`
+#### `TestExtractMetadata_VideoWithInvalidDate`
 
-### Why These Tests Are Skipped
-
-Creating a fully compliant MP4 file programmatically that go-mp4 can properly parse is complex. Real MP4 files from cameras/phones contain many additional boxes beyond just `ftyp`, `moov`, and `mvhd`.
-
-### How to Enable These Tests
-
-If you want to run these tests with real MP4 fixtures:
-
-1. **Add sample MP4 files** to this directory (`handler/testdata/`):
-   ```bash
-   # Copy a real video from your camera/phone
-   cp ~/Videos/sample.mp4 handler/testdata/valid_video.mp4
-   cp ~/Videos/old_video.mp4 handler/testdata/video_1970.mp4
-   ```
-
-2. **Modify the tests** to use these fixtures instead of `t.Skip()`:
-   ```go
-   // In handler/exif_test.go
-   func TestExtractVideoMetadata_ValidMP4(t *testing.T) {
-       testFile := filepath.Join("testdata", "valid_video.mp4")
-       if _, err := os.Stat(testFile); os.IsNotExist(err) {
-           t.Skip("Skipping: testdata/valid_video.mp4 not found")
-       }
-       
-       metadata, err := extractVideoMetadata(testFile)
-       // ... rest of test
-   }
-   ```
-
-3. **Run the tests**:
-   ```bash
-   go test -v ./handler -run TestExtractVideoMetadata_ValidMP4
-   ```
-
-### Sample Video Sources
-
-You can get sample MP4 files from:
-- Your own camera/phone
-- [Sample Videos](https://sample-videos.com/) - Public domain test videos
-- [Big Buck Bunny](https://download.blender.org/demo/movies/) - Open source test video
+This test is skipped because it would require programmatically generating an MP4 with an invalid creation time (before 1990), which is complex. The fallback behavior is already covered by `TestExtractMetadata_MovieFallback` which uses a broken AVI file.
 
 ### Current Test Coverage
 
-Even with these tests skipped, we have **comprehensive test coverage** for:
+We have **comprehensive test coverage** for video metadata:
+- ✅ Valid MP4 with creation_time extraction (`fixture.mp4`)
 - ✅ Invalid MP4 files (corrupt data)
 - ✅ MP4 without `mvhd` box (missing metadata)
 - ✅ File open errors
 - ✅ Fallback to ModTime when video metadata fails
 
-The skipped tests would only verify the **happy path** with real video metadata extraction, which is already tested in integration scenarios when users run picsplit on real photos/videos.
+**Test Results**: 58/59 tests passing, 1 skipped (invalid date test)

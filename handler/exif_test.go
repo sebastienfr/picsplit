@@ -341,6 +341,13 @@ func createMinimalEXIFData(dateTime time.Time) []byte {
 	return data
 }
 
+// getTestMP4Fixture returns the path to the test MP4 fixture
+// The fixture is a real MP4 file with creation_time set to 2024-12-20 15:30:00 UTC
+func getTestMP4Fixture() string {
+	// Path relative to handler package
+	return filepath.Join("testdata", "fixture.mp4")
+}
+
 func TestExtractEXIFDate_WithValidEXIF(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test_exif.jpg")
@@ -480,10 +487,21 @@ func TestExtractGPS_InvalidFile(t *testing.T) {
 }
 
 func TestExtractVideoMetadata_ValidMP4(t *testing.T) {
-	// Note: Creating a fully compliant MP4 that go-mp4 can parse is complex.
-	// This test verifies the error path when mvhd box is not found.
-	// Real MP4 files would be tested in integration tests with actual camera footage.
-	t.Skip("Skipping MP4 creation test - requires real MP4 fixtures")
+	// Use test fixture MP4 with known creation time: 2024-12-20 15:30:00 UTC
+	expectedTime := time.Date(2024, 12, 20, 15, 30, 0, 0, time.UTC)
+	mp4Path := getTestMP4Fixture()
+
+	// Extract video metadata
+	actualTime, err := extractVideoMetadata(mp4Path)
+	if err != nil {
+		t.Fatalf("extractVideoMetadata() failed: %v", err)
+	}
+
+	// Verify the time matches (allow 1 second tolerance due to timestamp precision)
+	timeDiff := actualTime.Sub(expectedTime)
+	if timeDiff < -time.Second || timeDiff > time.Second {
+		t.Errorf("extractVideoMetadata() time = %v, want %v (diff: %v)", actualTime, expectedTime, timeDiff)
+	}
 }
 
 func TestExtractVideoMetadata_InvalidMP4(t *testing.T) {
@@ -527,11 +545,34 @@ func TestExtractVideoMetadata_NoCreationTime(t *testing.T) {
 }
 
 func TestExtractMetadata_VideoFile(t *testing.T) {
-	t.Skip("Skipping video extraction test - requires real MP4 fixtures")
+	// Use test fixture MP4 with known creation time: 2024-12-20 15:30:00 UTC
+	expectedTime := time.Date(2024, 12, 20, 15, 30, 0, 0, time.UTC)
+	mp4Path := getTestMP4Fixture()
+
+	// Extract metadata using ExtractMetadata
+	ctx := newDefaultExecutionContext()
+	metadata, err := ExtractMetadata(ctx, mp4Path)
+	if err != nil {
+		t.Fatalf("ExtractMetadata() failed: %v", err)
+	}
+
+	// Verify source is VideoMeta
+	if metadata.Source != DateSourceVideoMeta {
+		t.Errorf("ExtractMetadata() source = %v, want %v", metadata.Source, DateSourceVideoMeta)
+	}
+
+	// Verify time matches (allow 1 second tolerance)
+	timeDiff := metadata.DateTime.Sub(expectedTime)
+	if timeDiff < -time.Second || timeDiff > time.Second {
+		t.Errorf("ExtractMetadata() DateTime = %v, want %v (diff: %v)", metadata.DateTime, expectedTime, timeDiff)
+	}
 }
 
 func TestExtractMetadata_VideoWithInvalidDate(t *testing.T) {
-	t.Skip("Skipping video test - requires real MP4 fixtures")
+	// NOTE: With static fixture, we can't test invalid date fallback.
+	// This test is covered by TestExtractMetadata_MovieFallback which uses a broken AVI file.
+	// Invalid video dates would require programmatic MP4 generation which is complex.
+	t.Skip("Skipping - requires dynamic MP4 generation to test invalid date fallback")
 }
 
 func TestExtractMetadata_PhotoWithInvalidEXIFDate(t *testing.T) {
