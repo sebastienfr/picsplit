@@ -199,6 +199,13 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 			currentGroup.files = append(currentGroup.files, files[i])
 		} else {
 			// Gap trop grand, finaliser groupe actuel
+			slog.Debug("gap exceeds delta, creating new group",
+				"prev_file", files[i-1].FileInfo.Name(),
+				"prev_time", files[i-1].DateTime,
+				"curr_file", files[i].FileInfo.Name(),
+				"curr_time", files[i].DateTime,
+				"gap", gap,
+				"delta", delta)
 			currentGroup.folderName = currentGroup.firstFile.DateTime.Format(dateFormatPattern)
 			groups = append(groups, currentGroup)
 

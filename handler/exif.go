@@ -148,6 +148,13 @@ func extractVideoMetadata(filePath string) (time.Time, error) {
 	}
 	defer f.Close()
 
+	// Get file ModTime for comparison
+	fileInfo, err := f.Stat()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to stat video: %w", err)
+	}
+	modTime := fileInfo.ModTime()
+
 	var foundTime *time.Time
 
 	// Parser le fichier MP4
@@ -167,14 +174,61 @@ func extractVideoMetadata(filePath string) (time.Time, error) {
 		// Si c'est un mvhd box
 		if mvhd, ok := box.(*mp4.Mvhd); ok {
 			// Convertir le timestamp MP4 (secondes depuis 1904-01-01) vers time.Time
-			// MP4 epoch: 1904-01-01 00:00:00 UTC
+			// MP4 spec: timestamps should be UTC
 			mp4Epoch := time.Date(1904, 1, 1, 0, 0, 0, 0, time.UTC)
 			creationTimestamp := mvhd.GetCreationTime()
 			// Safe conversion with overflow check
 			if creationTimestamp > uint64(1<<63-1) {
 				return nil, fmt.Errorf("creation time overflow")
 			}
-			creationTime := mp4Epoch.Add(time.Duration(int64(creationTimestamp)) * time.Second)
+			creationTimeUTC := mp4Epoch.Add(time.Duration(int64(creationTimestamp)) * time.Second)
+
+			// Some cameras (Nikon, etc.) incorrectly store local time in the UTC field
+			// Detect this by comparing wall clock times (HH:MM:SS) between MP4 UTC and ModTime local
+			// If they match, camera stored local time as UTC (common bug)
+			mp4Hour, mp4Min, mp4Sec := creationTimeUTC.Clock()
+			modHour, modMin, modSec := modTime.Clock()
+
+			// Calculate absolute differences
+			hourDiff := mp4Hour - modHour
+			if hourDiff < 0 {
+				hourDiff = -hourDiff
+			}
+			minDiff := mp4Min - modMin
+			if minDiff < 0 {
+				minDiff = -minDiff
+			}
+			secDiff := mp4Sec - modSec
+			if secDiff < 0 {
+				secDiff = -secDiff
+			}
+			wallClockDiffSeconds := hourDiff*3600 + minDiff*60 + secDiff
+
+			// If wall clock times are within 5 seconds, camera stored local as UTC
+			var creationTime time.Time
+			if wallClockDiffSeconds < 5 {
+				// Camera stored local time as UTC, reinterpret by changing timezone
+				// The time 21:45:03Z should be interpreted as 21:45:03 Local (not converted)
+				year, month, day := creationTimeUTC.Date()
+				hour, min, sec := creationTimeUTC.Clock()
+				creationTime = time.Date(year, month, day, hour, min, sec, 0, time.Local)
+
+				slog.Debug("MP4 timestamp appears to be local time (stored as UTC)",
+					"file", filepath.Base(filePath),
+					"mp4_utc_clock", fmt.Sprintf("%02d:%02d:%02d", mp4Hour, mp4Min, mp4Sec),
+					"mod_local_clock", fmt.Sprintf("%02d:%02d:%02d", modHour, modMin, modSec),
+					"corrected_time", creationTime,
+					"wall_diff_sec", wallClockDiffSeconds)
+			} else {
+				// Proper UTC timestamp, keep as is
+				slog.Debug("MP4 timestamp is proper UTC",
+					"file", filepath.Base(filePath),
+					"mp4_utc_clock", fmt.Sprintf("%02d:%02d:%02d", mp4Hour, mp4Min, mp4Sec),
+					"mod_local_clock", fmt.Sprintf("%02d:%02d:%02d", modHour, modMin, modSec),
+					"wall_diff_sec", wallClockDiffSeconds)
+				creationTime = creationTimeUTC
+			}
+
 			foundTime = &creationTime
 		}
 
