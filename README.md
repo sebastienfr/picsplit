@@ -332,11 +332,11 @@ Disk usage: 24.5 GB moved, 158.0 MB/s throughput
   `--mode validate|dryrun|run` pour pré-vérification ultra-rapide (5s vs 2m)  
   **Breaking change** : Retire `--dryrun` (remplacé par `--mode dryrun`)
 
-- **Détection de doublons** ([#14](https://github.com/sebastienfr/picsplit/issues/14))  
-  `--detect-duplicates` pour identifier fichiers identiques (hash SHA256)
-
-- **Nettoyage automatique** ([#15](https://github.com/sebastienfr/picsplit/issues/15))  
+- **Nettoyage automatique** ([#14](https://github.com/sebastienfr/picsplit/issues/14))  
   `--cleanup-empty-dirs` pour supprimer dossiers vides après traitement
+
+- **Détection de doublons** ([#15](https://github.com/sebastienfr/picsplit/issues/15))  
+  `--detect-duplicates` pour identifier fichiers identiques (hash SHA256)
 
 **Exemple de workflow v2.8.0** :
 ```bash
