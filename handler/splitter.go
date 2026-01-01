@@ -32,6 +32,72 @@ var (
 	ErrInvalidDelta = errors.New("delta must be positive")
 )
 
+// isOrganizedFolder checks if we're running picsplit on an already organized folder
+// Two cases:
+// 1. The folder itself has a date-formatted name (e.g., "2024 - 1220 - 0900")
+// 2. The folder contains subdirectories with date-formatted names
+func isOrganizedFolder(basePath string) bool {
+	// Resolve absolute path to get real folder name
+	absPath, err := filepath.Abs(basePath)
+	if err != nil {
+		slog.Debug("failed to get absolute path", "path", basePath, "error", err)
+		absPath = basePath
+	}
+
+	// Case 1: Check if the folder name itself is date-formatted
+	folderName := filepath.Base(absPath)
+	slog.Debug("checking folder name", "folder", folderName, "path", absPath, "len", len(folderName))
+
+	if len(folderName) >= 18 && len(folderName) <= 19 {
+		slog.Debug("folder name length matches", "len", len(folderName))
+		if parsed, err := time.Parse(dateFormatPattern, folderName); err == nil {
+			slog.Info("current folder is date-formatted - using orphan refresh mode", "folder", folderName, "parsed", parsed)
+			return true
+		} else {
+			slog.Debug("parse failed", "folder", folderName, "error", err)
+		}
+	}
+
+	// Case 2: Check if folder contains date-formatted subdirectories
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		slog.Debug("failed to read directory for organized check", "path", basePath, "error", err)
+		return false
+	}
+
+	var totalDirs int
+	var organizedDirs int
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+
+		// Skip special folders - don't count them in totalDirs
+		if name == movFolderName || name == rawFolderName || name == orphanFolderName {
+			slog.Debug("skipping special folder", "folder", name)
+			continue
+		}
+
+		totalDirs++
+
+		// Check if name matches date format pattern (YYYY - MMDD - HHMM)
+		if len(name) == 19 && name[4:7] == " - " && name[11:14] == " - " {
+			if _, err := time.Parse(dateFormatPattern, name); err == nil {
+				organizedDirs++
+				slog.Debug("found organized subfolder", "folder", name)
+			}
+		}
+	}
+
+	isOrganized := totalDirs > 0 && float64(organizedDirs)/float64(totalDirs) > 0.5
+	slog.Debug("organized folder check", "total_dirs", totalDirs, "organized_dirs", organizedDirs, "is_organized", isOrganized)
+
+	return isOrganized
+}
+
 // collectMediaFilesWithMetadata récupère tous les fichiers médias avec leurs métadonnées EXIF/vidéo
 func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMetadata, error) {
 	entries, err := os.ReadDir(cfg.BasePath)
@@ -178,6 +244,143 @@ func processGroup(cfg *Config, ctx *executionContext, group fileGroup) error {
 	return nil
 }
 
+// refreshOrphanRAW scans organized folders and separates orphan RAW files
+// This is used when picsplit is run on an already organized directory
+func refreshOrphanRAW(cfg *Config, ctx *executionContext) error {
+	slog.Info("detected organized folder structure - refreshing orphan RAW separation")
+
+	stats := &ProcessingStats{
+		StartTime: time.Now(),
+	}
+	defer func() {
+		stats.EndTime = time.Now()
+		stats.PrintSummary(cfg.DryRun)
+	}()
+
+	// Check if we're IN a date-formatted folder (e.g., running picsplit inside "2024 - 1220 - 0900")
+	absPath, err := filepath.Abs(cfg.BasePath)
+	if err != nil {
+		absPath = cfg.BasePath
+	}
+
+	folderName := filepath.Base(absPath)
+	if len(folderName) >= 18 && len(folderName) <= 19 {
+		if _, err := time.Parse(dateFormatPattern, folderName); err == nil {
+			// We're inside a date-formatted folder, process it directly
+			slog.Debug("processing current date-formatted folder", "folder", folderName)
+			return processOrganizedFolder(cfg, ctx, stats, cfg.BasePath, folderName)
+		}
+	}
+
+	// Otherwise, scan for date-formatted subfolders
+	entries, err := os.ReadDir(cfg.BasePath)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	// Process each organized subfolder
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		subFolderName := entry.Name()
+
+		// Skip special folders
+		if subFolderName == movFolderName || subFolderName == rawFolderName || subFolderName == orphanFolderName {
+			continue
+		}
+
+		// Only process date-formatted folders
+		if _, err := time.Parse(dateFormatPattern, subFolderName); err != nil {
+			slog.Debug("skipping non-date folder", "folder", subFolderName)
+			continue
+		}
+
+		folderPath := filepath.Join(cfg.BasePath, subFolderName)
+		if err := processOrganizedFolder(cfg, ctx, stats, folderPath, subFolderName); err != nil {
+			slog.Warn("failed to process folder", "folder", subFolderName, "error", err)
+		}
+	}
+
+	// Fix stats for proper display
+	if stats.TotalFiles == 0 {
+		stats.TotalFiles = stats.RawCount
+	}
+	return nil
+}
+
+// processOrganizedFolder processes a single organized folder to separate orphan RAW files
+func processOrganizedFolder(cfg *Config, ctx *executionContext, stats *ProcessingStats, folderPath, folderName string) error {
+	slog.Debug("processing organized folder", "folder", folderName)
+
+	// Check if there's a raw/ subfolder
+	rawPath := filepath.Join(folderPath, rawFolderName)
+	if _, err := os.Stat(rawPath); os.IsNotExist(err) {
+		slog.Debug("no raw folder found", "folder", folderName)
+		return nil
+	}
+
+	// Scan RAW files in raw/ subfolder
+	rawEntries, err := os.ReadDir(rawPath)
+	if err != nil {
+		return fmt.Errorf("failed to read raw folder: %w", err)
+	}
+
+	for _, rawEntry := range rawEntries {
+		if rawEntry.IsDir() {
+			continue
+		}
+
+		rawFileName := rawEntry.Name()
+		if !ctx.isRaw(rawFileName) {
+			continue
+		}
+
+		stats.RawCount++
+		rawFilePath := filepath.Join(rawPath, rawFileName)
+
+		// Check if RAW has associated JPEG/HEIC in parent folder
+		if !isRawPaired(rawFilePath, folderPath, folderPath) {
+			// Orphan RAW - move to orphan/ folder
+			stats.OrphanRaw++
+
+			orphanPath := filepath.Join(folderPath, orphanFolderName)
+			if !cfg.DryRun {
+				if err := os.MkdirAll(orphanPath, permDirectory); err != nil {
+					slog.Error("failed to create orphan folder", "folder", folderName, "error", err)
+					continue
+				}
+			}
+
+			destPath := filepath.Join(orphanPath, rawFileName)
+			slog.Info("moving orphan RAW", "from", rawFilePath, "to", destPath, "dryrun", cfg.DryRun)
+
+			if !cfg.DryRun {
+				if err := os.Rename(rawFilePath, destPath); err != nil {
+					stats.Errors = append(stats.Errors, &PicsplitError{
+						Type: ErrTypeIO,
+						Op:   "move_orphan",
+						Path: rawFilePath,
+						Err:  err,
+					})
+					slog.Error("failed to move orphan RAW", "file", rawFileName, "error", err)
+				} else {
+					stats.ProcessedFiles++
+				}
+			} else {
+				stats.ProcessedFiles++
+			}
+		} else {
+			// Paired RAW - keep in raw/
+			stats.PairedRaw++
+			slog.Debug("keeping paired RAW", "file", rawFileName)
+		}
+	}
+
+	return nil
+}
+
 // Split is the main function that moves files to dated folders according to configuration
 func Split(cfg *Config) error {
 	// Validate configuration
@@ -189,6 +392,12 @@ func Split(cfg *Config) error {
 	ctx, err := newExecutionContext(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize extension context: %w", err)
+	}
+
+	// Check if we're in an already organized folder
+	if cfg.SeparateOrphanRaw && isOrganizedFolder(cfg.BasePath) {
+		slog.Info("detected organized folder - running orphan refresh mode")
+		return refreshOrphanRAW(cfg, ctx)
 	}
 
 	// 1. Collecter fichiers média avec métadonnées
