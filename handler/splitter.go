@@ -225,7 +225,7 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 }
 
 // processGroup traite tous les fichiers d'un groupe
-func processGroup(cfg *Config, ctx *executionContext, group fileGroup) error {
+func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *ProcessingStats) error {
 	// Créer dossier principal (si pas dry-run)
 	if !cfg.DryRun {
 		groupDir := filepath.Join(cfg.BasePath, group.folderName)
@@ -239,12 +239,24 @@ func processGroup(cfg *Config, ctx *executionContext, group fileGroup) error {
 		fileName := file.FileInfo.Name()
 		if ctx.isPhoto(fileName) {
 			if err := processPicture(cfg, ctx, file.FileInfo, group.folderName); err != nil {
+				if cfg.ContinueOnError {
+					stats.AddError(err)
+					slog.Error("failed to process photo, continuing", "file", fileName, "error", err)
+					continue
+				}
 				return err
 			}
+			stats.ProcessedFiles++
 		} else if ctx.isMovie(fileName) {
 			if err := processMovie(cfg, file.FileInfo, group.folderName); err != nil {
+				if cfg.ContinueOnError {
+					stats.AddError(err)
+					slog.Error("failed to process video, continuing", "file", fileName, "error", err)
+					continue
+				}
 				return err
 			}
+			stats.ProcessedFiles++
 		}
 	}
 
@@ -545,25 +557,32 @@ func Split(cfg *Config) error {
 			"folder", group.folderName,
 			"files", len(group.files))
 
-		if err := processGroup(cfg, ctx, group); err != nil {
-			// Track error
-			stats.Errors = append(stats.Errors, &PicsplitError{
+		if err := processGroup(cfg, ctx, group, stats); err != nil {
+			// Track error at group level
+			stats.AddError(&PicsplitError{
 				Type:    ErrTypeIO,
 				Op:      "process_group",
 				Path:    group.folderName,
 				Err:     err,
 				Details: map[string]string{"file_count": fmt.Sprintf("%d", len(group.files))},
 			})
-			slog.Error("failed to process group", "folder", group.folderName, "error", err)
-			// Continue processing other groups instead of failing completely
-		} else {
-			// Track successfully processed files
-			stats.ProcessedFiles += len(group.files)
+
+			if !cfg.ContinueOnError {
+				slog.Error("failed to process group, stopping", "folder", group.folderName, "error", err)
+				return err
+			}
+
+			slog.Error("failed to process group, continuing", "folder", group.folderName, "error", err)
 		}
 
 		if bar != nil {
 			_ = bar.Add(1)
 		}
+	}
+
+	// Return error if critical errors occurred
+	if stats.HasCriticalErrors() {
+		return fmt.Errorf("processing completed with %d critical error(s)", len(stats.Errors))
 	}
 
 	return nil

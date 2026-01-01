@@ -1709,3 +1709,114 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 		}
 	})
 }
+
+func TestSplit_ContinueOnError(t *testing.T) {
+	t.Run("Config flag is properly set", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create test files with EXIF dates
+		files := []struct {
+			name string
+			date time.Time
+		}{
+			{"IMG_001.jpg", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+			{"IMG_002.jpg", time.Date(2024, 1, 15, 10, 5, 0, 0, time.UTC)},
+		}
+
+		for _, f := range files {
+			path := filepath.Join(tmpDir, f.name)
+			createJPEGWithEXIF(t, path, f.date)
+		}
+
+		// Test with ContinueOnError = false (default)
+		cfg := &Config{
+			BasePath:        tmpDir,
+			Delta:           30 * time.Minute,
+			UseEXIF:         true,
+			ContinueOnError: false,
+		}
+
+		if cfg.ContinueOnError {
+			t.Error("ContinueOnError should be false by default")
+		}
+
+		// Test with ContinueOnError = true
+		cfg.ContinueOnError = true
+		if !cfg.ContinueOnError {
+			t.Error("ContinueOnError should be true when set")
+		}
+
+		// Verify Split() doesn't error with valid files
+		err := Split(cfg)
+		if err != nil {
+			t.Errorf("Split() should succeed with valid files: %v", err)
+		}
+	})
+
+	t.Run("ProcessingStats AddError works correctly", func(t *testing.T) {
+		stats := &ProcessingStats{
+			StartTime: time.Now(),
+		}
+
+		// Test adding a PicsplitError
+		err1 := &PicsplitError{
+			Type: ErrTypeIO,
+			Op:   "test_op",
+			Path: "/test/path",
+		}
+		stats.AddError(err1)
+
+		if len(stats.Errors) != 1 {
+			t.Errorf("Expected 1 error, got %d", len(stats.Errors))
+		}
+
+		// Test adding a generic error (should be wrapped)
+		genericErr := fmt.Errorf("generic error")
+		stats.AddError(genericErr)
+
+		if len(stats.Errors) != 2 {
+			t.Errorf("Expected 2 errors, got %d", len(stats.Errors))
+		}
+
+		if stats.Errors[1].Type != ErrTypeIO {
+			t.Errorf("Generic error should be wrapped as ErrTypeIO, got %v", stats.Errors[1].Type)
+		}
+
+		// Test adding nil (should be ignored)
+		stats.AddError(nil)
+		if len(stats.Errors) != 2 {
+			t.Errorf("Adding nil should not increase error count, got %d", len(stats.Errors))
+		}
+	})
+
+	t.Run("HasCriticalErrors detects critical errors", func(t *testing.T) {
+		stats := &ProcessingStats{}
+
+		// No errors initially
+		if stats.HasCriticalErrors() {
+			t.Error("Should not have critical errors initially")
+		}
+
+		// Add non-critical error (EXIF)
+		stats.AddError(&PicsplitError{
+			Type: ErrTypeEXIF,
+			Op:   "extract_exif",
+			Path: "/test.jpg",
+		})
+
+		if stats.HasCriticalErrors() {
+			t.Error("EXIF errors should not be critical")
+		}
+
+		// Add critical error (IO)
+		stats.AddError(&PicsplitError{
+			Type: ErrTypeIO,
+			Op:   "move_file",
+			Path: "/test.jpg",
+		})
+
+		if !stats.HasCriticalErrors() {
+			t.Error("Should have critical errors after adding IO error")
+		}
+	})
+}

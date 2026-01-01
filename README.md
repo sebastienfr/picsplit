@@ -538,6 +538,44 @@ picsplit merge --raw-ext rwx folder1 folder2 merged
 
 ---
 
+#### Error Handling
+
+Control how picsplit behaves when encountering errors during processing.
+
+```bash
+# Default: stop at first error
+picsplit ./photos
+
+# Continue processing despite errors (collects all errors, reports at end)
+picsplit --continue-on-error ./photos
+
+# Short alias
+picsplit --coe ./photos
+
+# Combine with dry run to preview error handling
+picsplit --coe --dryrun ./photos
+```
+
+**Behavior:**
+
+**Default mode** (`--continue-on-error=false`):
+- ❌ Stops immediately when encountering a critical error (IO, permission, validation)
+- ✅ Returns error code 1
+- ⚠️ Non-critical errors (EXIF/metadata issues) use fallback and continue
+
+**Continue-on-error mode** (`--continue-on-error=true`):
+- ✅ Collects all errors and continues processing remaining files
+- ✅ All errors displayed in summary at the end
+- ✅ Returns error code 1 if any critical errors occurred
+- ✅ Processes as many files as possible despite failures
+
+**Use cases:**
+- Large photo libraries where you want to process everything possible
+- Debugging: collect all errors in one run instead of fixing them one by one
+- Mixed quality sources where some files may be corrupted
+
+---
+
 ### CLI Reference
 
 #### Main Command
@@ -551,6 +589,7 @@ picsplit merge --raw-ext rwx folder1 folder2 merged
 | `--gps` | `-g` | `false` | Enable GPS location clustering |
 | `--gps-radius` | `-gr` | `2000` | GPS clustering radius in meters |
 | `--dryrun` | `-dr` | `false` | Preview changes without moving files |
+| `--continue-on-error` | `--coe` | `false` | Continue processing despite errors (collect all errors instead of stopping at first failure) |
 | `--log-level` | - | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `--log-format` | - | `text` | Log format: `text` or `json` |
 | `--nomvmov` | `-nmm` | `false` | Don't separate videos into `mov/` folder |

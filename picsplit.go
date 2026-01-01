@@ -55,6 +55,9 @@ var (
 	// separateOrphanRaw -separate-orphan : separate unpaired RAW files to orphan/ folder (v2.6.0+)
 	separateOrphanRaw = true
 
+	// continueOnError -continue-on-error : continue processing even if errors occur (v2.8.0+)
+	continueOnError = false
+
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
 		"X19fIHxfX3wgX19fXCAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
@@ -409,6 +412,12 @@ func main() {
 			Destination: &separateOrphanRaw,
 			Usage:       "Separate unpaired RAW files to orphan/ folder (default: true)",
 		},
+		&cli.BoolFlag{
+			Name:        "continue-on-error",
+			Aliases:     []string{"coe"},
+			Destination: &continueOnError,
+			Usage:       "Continue processing even if errors occur (collect all errors instead of stopping at first failure)",
+		},
 	}
 
 	// main action
@@ -485,6 +494,7 @@ func main() {
 			CustomVideoExts:   videoExts,
 			CustomRawExts:     rawExts,
 			SeparateOrphanRaw: separateOrphanRaw,
+			ContinueOnError:   continueOnError,
 			LogLevel:          c.String(flagLogLevel),
 			LogFormat:         c.String(flagLogFormat),
 		}

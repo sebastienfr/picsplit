@@ -32,6 +32,39 @@ type ProcessingStats struct {
 	Errors               []*PicsplitError
 }
 
+// AddError adds an error to the statistics
+// If the error is a PicsplitError, it's added to the Errors slice
+// If it's a generic error, it's wrapped as a PicsplitError with ErrTypeIO
+func (s *ProcessingStats) AddError(err error) {
+	if err == nil {
+		return
+	}
+
+	var perr *PicsplitError
+	if pErr, ok := err.(*PicsplitError); ok {
+		perr = pErr
+	} else {
+		// Wrap generic errors as PicsplitError
+		perr = &PicsplitError{
+			Type: ErrTypeIO,
+			Op:   "unknown",
+			Err:  err,
+		}
+	}
+
+	s.Errors = append(s.Errors, perr)
+}
+
+// HasCriticalErrors returns true if any critical errors were encountered
+func (s *ProcessingStats) HasCriticalErrors() bool {
+	for _, err := range s.Errors {
+		if err.IsCritical() {
+			return true
+		}
+	}
+	return false
+}
+
 // Duration returns the total processing duration
 func (s *ProcessingStats) Duration() time.Duration {
 	if s.EndTime.IsZero() {

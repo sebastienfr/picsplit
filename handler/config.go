@@ -33,6 +33,9 @@ type Config struct {
 	// Logging configuration (v2.7.0+)
 	LogLevel  string // Log level: debug, info, warn, error
 	LogFormat string // Log format: text, json
+
+	// Error handling (v2.8.0+)
+	ContinueOnError bool // Continue processing even if errors occur (collect all errors instead of stopping)
 }
 
 // Validate checks if the configuration is valid
@@ -77,5 +80,6 @@ func DefaultConfig(basePath string) *Config {
 		UseGPS:            false,                  // GPS clustering désactivé par défaut (opt-in)
 		GPSRadius:         defaultGPSRadiusMeters, // 2000m = 2km
 		SeparateOrphanRaw: true,                   // Activé par défaut (v2.6.0+)
+		ContinueOnError:   false,                  // Stop au premier échec par défaut (v2.8.0+)
 	}
 }
