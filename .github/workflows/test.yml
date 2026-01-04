@@ -88,7 +88,7 @@ jobs:
         run: |
           if [ -f ./bin/picsplit ]; then
             echo "✓ Binary created successfully"
-            ./bin/picsplit -V
+            ./bin/picsplit --version
           else
             echo "✗ Binary not found"
             exit 1
