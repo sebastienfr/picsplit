@@ -226,7 +226,7 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 }
 
 // processGroup traite tous les fichiers d'un groupe
-func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *ProcessingStats) error {
+func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *ProcessingStats, detector *DuplicateDetector) error {
 	// Créer dossier principal (si pas dry-run)
 	if cfg.Mode != ModeDryRun {
 		groupDir := filepath.Join(cfg.BasePath, group.folderName)
@@ -238,6 +238,31 @@ func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *Pr
 	// Traiter chaque fichier
 	for _, file := range group.files {
 		fileName := file.FileInfo.Name()
+		filePath := filepath.Join(cfg.BasePath, fileName)
+
+		// Vérifier si fichier est un doublon
+		if cfg.DetectDuplicates {
+			isDup, original, err := detector.Check(filePath, file.FileInfo.Size())
+			if err != nil {
+				slog.Warn("failed to check duplicate", "file", fileName, "error", err)
+				// Continue processing even if duplicate detection fails
+			} else if isDup {
+				// Doublon détecté
+				stats.DuplicatesDetected[filePath] = original
+
+				if cfg.SkipDuplicates {
+					// Skip ce fichier
+					slog.Info("skipping duplicate", "file", fileName, "original", filepath.Base(original))
+					stats.DuplicatesSkipped++
+					continue
+				} else {
+					// Juste un warning, on traite quand même
+					slog.Warn("duplicate detected (processing anyway)", "file", fileName, "original", filepath.Base(original))
+				}
+			}
+		}
+
+		// Traiter le fichier normalement
 		if ctx.isPhoto(fileName) {
 			if err := processPicture(cfg, ctx, file.FileInfo, group.folderName); err != nil {
 				if cfg.ContinueOnError {
@@ -484,10 +509,12 @@ func splitInternal(cfg *Config) error {
 
 	// Initialize processing statistics
 	stats := &ProcessingStats{
-		StartTime:        time.Now(),
-		TotalFiles:       len(mediaFiles),
-		EmptyDirsFailed:  make(map[string]string),
-		EmptyDirsRemoved: []string{},
+		StartTime:          time.Now(),
+		TotalFiles:         len(mediaFiles),
+		EmptyDirsFailed:    make(map[string]string),
+		EmptyDirsRemoved:   []string{},
+		DuplicatesDetected: make(map[string]string),
+		DuplicatesSkipped:  0,
 	}
 	defer func() {
 		// Cleanup empty directories if requested (after all file operations)
@@ -508,7 +535,11 @@ func splitInternal(cfg *Config) error {
 		stats.PrintSummary(cfg.Mode == ModeDryRun)
 	}()
 
+	// Créer le détecteur de doublons si activé
+	detector := NewDuplicateDetector(cfg.DetectDuplicates)
+
 	// Count file types and ModTime fallback
+	// ET pré-remplir le détecteur de doublons par taille
 	for _, mf := range mediaFiles {
 		fileName := mf.FileInfo.Name()
 		if ctx.isPhoto(fileName) {
@@ -528,6 +559,12 @@ func splitInternal(cfg *Config) error {
 
 		// Track total bytes
 		stats.TotalBytes += mf.FileInfo.Size()
+
+		// Ajouter au pré-filtrage par taille (optimisation duplicates)
+		if cfg.DetectDuplicates {
+			filePath := filepath.Join(cfg.BasePath, mf.FileInfo.Name())
+			detector.AddFile(filePath, mf.FileInfo.Size())
+		}
 	}
 
 	var groups []fileGroup
@@ -623,7 +660,7 @@ func splitInternal(cfg *Config) error {
 			"folder", group.folderName,
 			"files", len(group.files))
 
-		if err := processGroup(cfg, ctx, group, stats); err != nil {
+		if err := processGroup(cfg, ctx, group, stats, detector); err != nil {
 			// Track error at group level
 			stats.AddError(&PicsplitError{
 				Type:    ErrTypeIO,

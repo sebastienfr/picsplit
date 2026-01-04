@@ -71,6 +71,12 @@ var (
 	// force -force : skip confirmation prompts (v2.8.0+)
 	force = false
 
+	// detectDuplicates -detect-duplicates : detect duplicate files via SHA256 hash (v2.8.0+)
+	detectDuplicates = false
+
+	// skipDuplicates -skip-duplicates : skip duplicate files automatically (v2.8.0+)
+	skipDuplicates = false
+
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
 		"X19fIHxfX3wgX19fXCAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
@@ -481,6 +487,18 @@ func main() {
 			Usage:       "Additional files to ignore when checking if directory is empty (comma-separated, e.g., '.picasa.ini,.nomedia')",
 		},
 		&cli.BoolFlag{
+			Name:        "detect-duplicates",
+			Aliases:     []string{"dd"},
+			Destination: &detectDuplicates,
+			Usage:       "Detect duplicate files via SHA256 hash (default: false)",
+		},
+		&cli.BoolFlag{
+			Name:        "skip-duplicates",
+			Aliases:     []string{"sd"},
+			Destination: &skipDuplicates,
+			Usage:       "Skip duplicate files automatically (requires --detect-duplicates)",
+		},
+		&cli.BoolFlag{
 			Name:        flagForce,
 			Aliases:     []string{"f"},
 			Destination: &force,
@@ -588,6 +606,8 @@ func main() {
 			CleanupEmptyDirs:  cleanupEmptyDirs,
 			CleanupIgnore:     cleanupIgnoreFiles,
 			Force:             force,
+			DetectDuplicates:  detectDuplicates,
+			SkipDuplicates:    skipDuplicates,
 			LogLevel:          c.String(flagLogLevel),
 			LogFormat:         c.String(flagLogFormat),
 		}

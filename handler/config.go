@@ -48,6 +48,8 @@ type Config struct {
 	CleanupEmptyDirs bool          // Remove empty directories after processing
 	CleanupIgnore    []string      // Additional files to ignore when checking if directory is empty (beyond .DS_Store, Thumbs.db, etc.)
 	Force            bool          // Skip confirmation prompts (cleanup, merge conflicts, etc.)
+	DetectDuplicates bool          // Detect duplicate files via SHA256 hash (v2.8.0+)
+	SkipDuplicates   bool          // Skip duplicate files automatically (requires DetectDuplicates) (v2.8.0+)
 }
 
 // Validate checks if the configuration is valid
@@ -62,6 +64,10 @@ func (c *Config) Validate() error {
 
 	if c.UseGPS && c.GPSRadius <= 0 {
 		return errors.New("GPS radius must be positive when GPS clustering is enabled")
+	}
+
+	if c.SkipDuplicates && !c.DetectDuplicates {
+		return errors.New("--skip-duplicates requires --detect-duplicates")
 	}
 
 	// Check if path exists and is a directory
@@ -95,5 +101,7 @@ func DefaultConfig(basePath string) *Config {
 		Mode:              ModeRun,                // Execution réelle par défaut (v2.8.0+)
 		CleanupEmptyDirs:  false,                  // Désactivé par défaut (v2.8.0+)
 		Force:             false,                  // Demander confirmation par défaut (v2.8.0+)
+		DetectDuplicates:  false,                  // Détection désactivée par défaut (v2.8.0+)
+		SkipDuplicates:    false,                  // Skip désactivé par défaut (v2.8.0+)
 	}
 }

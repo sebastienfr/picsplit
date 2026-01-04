@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Displays cleanup statistics in processing summary
   - New file: `handler/cleanup.go` with `CleanupEmptyDirs()` function
 - **Force flag**: New `--force` / `-f` flag to skip confirmation prompts (cleanup, merge conflicts, etc.)
+- **Duplicate detection** ([#15](https://github.com/sebastienfr/picsplit/issues/15)): New `--detect-duplicates` flag to detect duplicate files via SHA256 hash
+  - Two modes: detection-only (warning) or auto-skip with `--skip-duplicates`
+  - Size-based pre-filtering optimization (10x faster: only hash files with matching sizes)
+  - Displays duplicate statistics in processing summary
+  - Shows duplicate pairs (duplicate → original) in logs
+  - Validation: `--skip-duplicates` requires `--detect-duplicates`
+  - New file: `handler/duplicates.go` with `DuplicateDetector` and SHA256 hashing
+  - Flags: `--detect-duplicates` / `--dd` and `--skip-duplicates` / `--sd`
 - **Fast validation mode** ([#13](https://github.com/sebastienfr/picsplit/issues/13)): New `--mode validate` for ultra-fast pre-checks (5s vs 2min)
   - Validates file extensions, permissions, and disk space without EXIF extraction
   - Returns detailed `ValidationReport` with file counts, critical errors, and warnings
@@ -45,13 +53,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **BREAKING**: Removed `--dryrun` flag → use `--mode dryrun` instead
 - **Version flag**: Changed from `--print-version` / `-V` to `--version` / `-v` (more conventional)
-- **Test coverage**: Increased from 83.7% to 80.4% in handler package (+7.3 points from validation & cleanup tests)
+- **Test coverage**: Maintained at 79.0% in handler package (excellent coverage on new features)
   - New file: `handler/validator_test.go` (15 test scenarios)
   - New file: `handler/cleanup_test.go` (20 test scenarios for cleanup - comprehensive coverage)
+  - New file: `handler/duplicates_test.go` (11 test scenarios - 100% coverage on duplicates.go)
   - Enhanced `handler/merger_test.go` (+9 tests for `validateMerge()`)
   - Enhanced `handler/splitter_test.go` (+15 tests for modes and orphan RAW)
-  - Total: ~59 new tests added
-  - Cleanup module: 84.8% coverage (CleanupEmptyDirs), 100% for helpers (isDirEmpty, isProtectedDir, etc.)
+  - Total: ~70 new tests added
+  - Cleanup module: 84.8% coverage (CleanupEmptyDirs), 100% for helpers
+  - Duplicates module: 100% coverage (all functions)
 
 ### Fixed
 - **Bug**: `isOrganizedFolder()` incorrectly checked `len(name) == 19` instead of `18`

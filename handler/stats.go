@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 )
 
@@ -30,6 +31,10 @@ type ProcessingStats struct {
 	// Cleanup
 	EmptyDirsRemoved []string          // List of empty directories removed
 	EmptyDirsFailed  map[string]string // Map of failed directory removals (path -> error message)
+
+	// Duplicates (v2.8.0+)
+	DuplicatesDetected map[string]string // Map of detected duplicates (duplicate path -> original path)
+	DuplicatesSkipped  int               // Number of duplicates skipped
 
 	// Issues
 	ModTimeFallbackCount int // Files that fell back to ModTime
@@ -212,6 +217,47 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 		slog.Warn("files used ModTime fallback",
 			"count", s.ModTimeFallbackCount,
 			"reason", "EXIF metadata unavailable or corrupted")
+	}
+
+	// Duplicates summary
+	if len(s.DuplicatesDetected) > 0 || s.DuplicatesSkipped > 0 {
+		fmt.Println()
+		if s.DuplicatesSkipped > 0 {
+			slog.Info("duplicates skipped",
+				"count", s.DuplicatesSkipped)
+			// Show first 10 duplicates
+			count := 0
+			for dup, original := range s.DuplicatesDetected {
+				if count >= 10 {
+					break
+				}
+				slog.Info("skipped duplicate",
+					"file", filepath.Base(dup),
+					"original", filepath.Base(original))
+				count++
+			}
+			if len(s.DuplicatesDetected) > 10 {
+				slog.Info("and more...", "additional", len(s.DuplicatesDetected)-10)
+			}
+		} else {
+			// Duplicates detected but not skipped (warning mode)
+			slog.Warn("duplicates detected (processed anyway)",
+				"count", len(s.DuplicatesDetected))
+			// Show first 10 duplicates
+			count := 0
+			for dup, original := range s.DuplicatesDetected {
+				if count >= 10 {
+					break
+				}
+				slog.Warn("duplicate detected",
+					"file", filepath.Base(dup),
+					"original", filepath.Base(original))
+				count++
+			}
+			if len(s.DuplicatesDetected) > 10 {
+				slog.Warn("and more...", "additional", len(s.DuplicatesDetected)-10)
+			}
+		}
 	}
 
 	// Cleanup summary
