@@ -43,8 +43,11 @@ type Config struct {
 	LogFormat string // Log format: text, json
 
 	// Error handling & execution mode (v2.8.0+)
-	ContinueOnError bool          // Continue processing even if errors occur (collect all errors instead of stopping)
-	Mode            ExecutionMode // Execution mode: validate (fast check), dryrun (simulate), run (execute - default)
+	ContinueOnError  bool          // Continue processing even if errors occur (collect all errors instead of stopping)
+	Mode             ExecutionMode // Execution mode: validate (fast check), dryrun (simulate), run (execute - default)
+	CleanupEmptyDirs bool          // Remove empty directories after processing
+	CleanupIgnore    []string      // Additional files to ignore when checking if directory is empty (beyond .DS_Store, Thumbs.db, etc.)
+	Force            bool          // Skip confirmation prompts (cleanup, merge conflicts, etc.)
 }
 
 // Validate checks if the configuration is valid
@@ -90,5 +93,7 @@ func DefaultConfig(basePath string) *Config {
 		SeparateOrphanRaw: true,                   // Activé par défaut (v2.6.0+)
 		ContinueOnError:   false,                  // Stop au premier échec par défaut (v2.8.0+)
 		Mode:              ModeRun,                // Execution réelle par défaut (v2.8.0+)
+		CleanupEmptyDirs:  false,                  // Désactivé par défaut (v2.8.0+)
+		Force:             false,                  // Demander confirmation par défaut (v2.8.0+)
 	}
 }

@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Empty directory cleanup** ([#14](https://github.com/sebastienfr/picsplit/issues/14)): New `--cleanup-empty-dirs` flag to remove empty directories after processing
+  - Multi-pass bottom-up traversal to remove nested empty directories
+  - Smart file ignoring: directories with only `.DS_Store`, `Thumbs.db`, etc. are considered empty
+  - Custom ignored files via `--cleanup-ignore` (comma-separated list, e.g., `.picasa.ini,.nomedia`)
+  - Ignored files are automatically deleted before directory removal
+  - Interactive confirmation before deletion (unless `--force` is used)
+  - Accepts multiple confirmation inputs: `y`, `yes`, `o`, `oui` (case insensitive)
+  - Protects system directories (`.git`, `.svn`, `node_modules`, etc.)
+  - Skip in validate mode, simulate in dryrun mode, execute in run mode
+  - **Limitation**: In dryrun mode, shows only currently empty directories (not future state after moves)
+  - Displays cleanup statistics in processing summary
+  - New file: `handler/cleanup.go` with `CleanupEmptyDirs()` function
+- **Force flag**: New `--force` / `-f` flag to skip confirmation prompts (cleanup, merge conflicts, etc.)
 - **Fast validation mode** ([#13](https://github.com/sebastienfr/picsplit/issues/13)): New `--mode validate` for ultra-fast pre-checks (5s vs 2min)
   - Validates file extensions, permissions, and disk space without EXIF extraction
   - Returns detailed `ValidationReport` with file counts, critical errors, and warnings
@@ -31,11 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **BREAKING**: Removed `--dryrun` flag → use `--mode dryrun` instead
-- **Test coverage**: Increased from 63.5% to 83.7% (+20.2 points)
+- **Version flag**: Changed from `--print-version` / `-V` to `--version` / `-v` (more conventional)
+- **Test coverage**: Increased from 83.7% to 80.4% in handler package (+7.3 points from validation & cleanup tests)
   - New file: `handler/validator_test.go` (15 test scenarios)
+  - New file: `handler/cleanup_test.go` (20 test scenarios for cleanup - comprehensive coverage)
   - Enhanced `handler/merger_test.go` (+9 tests for `validateMerge()`)
   - Enhanced `handler/splitter_test.go` (+15 tests for modes and orphan RAW)
-  - Total: ~40 new tests added
+  - Total: ~59 new tests added
+  - Cleanup module: 84.8% coverage (CleanupEmptyDirs), 100% for helpers (isDirEmpty, isProtectedDir, etc.)
 
 ### Fixed
 - **Bug**: `isOrganizedFolder()` incorrectly checked `len(name) == 19` instead of `18`

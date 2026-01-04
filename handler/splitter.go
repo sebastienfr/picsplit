@@ -270,9 +270,25 @@ func refreshOrphanRAW(cfg *Config, ctx *executionContext) error {
 	slog.Info("detected organized folder structure - refreshing orphan RAW separation")
 
 	stats := &ProcessingStats{
-		StartTime: time.Now(),
+		StartTime:        time.Now(),
+		EmptyDirsFailed:  make(map[string]string),
+		EmptyDirsRemoved: []string{},
 	}
 	defer func() {
+		// Cleanup empty directories if requested (after all file operations)
+		if cfg.CleanupEmptyDirs && cfg.Mode != ModeValidate {
+			slog.Info("cleaning up empty directories", "path", cfg.BasePath)
+			result, err := CleanupEmptyDirs(cfg.BasePath, cfg.Mode, cfg.Force, cfg.CleanupIgnore)
+			if err != nil {
+				slog.Warn("cleanup failed", "error", err)
+			} else {
+				stats.EmptyDirsRemoved = result.RemovedDirs
+				for path, cleanupErr := range result.FailedDirs {
+					stats.EmptyDirsFailed[path] = cleanupErr.Error()
+				}
+			}
+		}
+
 		stats.EndTime = time.Now()
 		stats.PrintSummary(cfg.Mode == ModeDryRun)
 	}()
@@ -468,10 +484,26 @@ func splitInternal(cfg *Config) error {
 
 	// Initialize processing statistics
 	stats := &ProcessingStats{
-		StartTime:  time.Now(),
-		TotalFiles: len(mediaFiles),
+		StartTime:        time.Now(),
+		TotalFiles:       len(mediaFiles),
+		EmptyDirsFailed:  make(map[string]string),
+		EmptyDirsRemoved: []string{},
 	}
 	defer func() {
+		// Cleanup empty directories if requested (after all file operations)
+		if cfg.CleanupEmptyDirs && cfg.Mode != ModeValidate {
+			slog.Info("cleaning up empty directories", "path", cfg.BasePath)
+			result, err := CleanupEmptyDirs(cfg.BasePath, cfg.Mode, cfg.Force, cfg.CleanupIgnore)
+			if err != nil {
+				slog.Warn("cleanup failed", "error", err)
+			} else {
+				stats.EmptyDirsRemoved = result.RemovedDirs
+				for path, cleanupErr := range result.FailedDirs {
+					stats.EmptyDirsFailed[path] = cleanupErr.Error()
+				}
+			}
+		}
+
 		stats.EndTime = time.Now()
 		stats.PrintSummary(cfg.Mode == ModeDryRun)
 	}()

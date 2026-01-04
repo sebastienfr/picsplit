@@ -62,6 +62,15 @@ var (
 	// continueOnError -continue-on-error : continue processing even if errors occur (v2.8.0+)
 	continueOnError = false
 
+	// cleanupEmptyDirs -cleanup-empty-dirs : remove empty directories after processing (v2.8.0+)
+	cleanupEmptyDirs = false
+
+	// cleanupIgnore -cleanup-ignore : additional files to ignore during cleanup (v2.8.0+)
+	cleanupIgnore string
+
+	// force -force : skip confirmation prompts (v2.8.0+)
+	force = false
+
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
 		"X19fIHxfX3wgX19fXCAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
@@ -188,8 +197,8 @@ func getBuildInfo() (string, string, string, string) {
 func main() {
 	// customize version flag
 	cli.VersionFlag = &cli.BoolFlag{
-		Name:    "print-version",
-		Aliases: []string{"V"},
+		Name:    "version",
+		Aliases: []string{"v"},
 	}
 
 	// Get build information
@@ -459,6 +468,24 @@ func main() {
 			Destination: &continueOnError,
 			Usage:       "Continue processing even if errors occur (collect all errors instead of stopping at first failure)",
 		},
+		&cli.BoolFlag{
+			Name:        "cleanup-empty-dirs",
+			Aliases:     []string{"ced"},
+			Destination: &cleanupEmptyDirs,
+			Usage:       "Remove empty directories after processing (default: false)",
+		},
+		&cli.StringFlag{
+			Name:        "cleanup-ignore",
+			Aliases:     []string{"ci"},
+			Destination: &cleanupIgnore,
+			Usage:       "Additional files to ignore when checking if directory is empty (comma-separated, e.g., '.picasa.ini,.nomedia')",
+		},
+		&cli.BoolFlag{
+			Name:        flagForce,
+			Aliases:     []string{"f"},
+			Destination: &force,
+			Usage:       "Skip confirmation prompts (cleanup, etc.)",
+		},
 	}
 
 	// main action
@@ -490,6 +517,15 @@ func main() {
 		rawExts, err := parseExtensions(customRawExts)
 		if err != nil {
 			return fmt.Errorf("invalid RAW extensions: %w", err)
+		}
+
+		// Parse cleanup ignore files
+		cleanupIgnoreFiles := []string{}
+		if cleanupIgnore != "" {
+			cleanupIgnoreFiles = strings.Split(cleanupIgnore, ",")
+			for i, file := range cleanupIgnoreFiles {
+				cleanupIgnoreFiles[i] = strings.TrimSpace(file)
+			}
 		}
 
 		slog.Debug("configuration",
@@ -549,6 +585,9 @@ func main() {
 			SeparateOrphanRaw: separateOrphanRaw,
 			ContinueOnError:   continueOnError,
 			Mode:              mode,
+			CleanupEmptyDirs:  cleanupEmptyDirs,
+			CleanupIgnore:     cleanupIgnoreFiles,
+			Force:             force,
 			LogLevel:          c.String(flagLogLevel),
 			LogFormat:         c.String(flagLogFormat),
 		}

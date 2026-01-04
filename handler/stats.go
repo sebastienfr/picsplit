@@ -27,6 +27,10 @@ type ProcessingStats struct {
 	// Disk
 	TotalBytes int64
 
+	// Cleanup
+	EmptyDirsRemoved []string          // List of empty directories removed
+	EmptyDirsFailed  map[string]string // Map of failed directory removals (path -> error message)
+
 	// Issues
 	ModTimeFallbackCount int // Files that fell back to ModTime
 	Errors               []*PicsplitError
@@ -208,6 +212,35 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 		slog.Warn("files used ModTime fallback",
 			"count", s.ModTimeFallbackCount,
 			"reason", "EXIF metadata unavailable or corrupted")
+	}
+
+	// Cleanup summary
+	if len(s.EmptyDirsRemoved) > 0 || len(s.EmptyDirsFailed) > 0 {
+		fmt.Println()
+		if len(s.EmptyDirsRemoved) > 0 {
+			slog.Info("cleanup completed",
+				"empty_dirs_removed", len(s.EmptyDirsRemoved))
+			if len(s.EmptyDirsRemoved) <= 10 {
+				for _, dir := range s.EmptyDirsRemoved {
+					slog.Info("removed empty directory", "path", dir)
+				}
+			} else {
+				slog.Info("showing first 10 removed directories")
+				for i := 0; i < 10; i++ {
+					slog.Info("removed empty directory", "path", s.EmptyDirsRemoved[i])
+				}
+				slog.Info("and more...", "additional", len(s.EmptyDirsRemoved)-10)
+			}
+		}
+		if len(s.EmptyDirsFailed) > 0 {
+			slog.Warn("cleanup warnings",
+				"failed_removals", len(s.EmptyDirsFailed))
+			for path, errMsg := range s.EmptyDirsFailed {
+				slog.Warn("failed to remove directory",
+					"path", path,
+					"error", errMsg)
+			}
+		}
 	}
 
 	// Final status

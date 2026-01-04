@@ -340,10 +340,11 @@ Disk usage: 24.5 GB moved, 158.0 MB/s throughput
   **Breaking change** : Retire `--dryrun` (remplacé par `--mode dryrun`)  
   Nouveau fichier: `handler/validator.go` avec `Validate()` et `ValidationReport`
 
-**Fonctionnalités planifiées** :
+- ✅ **Nettoyage automatique des répertoires vides** ([#14](https://github.com/sebastienfr/picsplit/issues/14))  
+  `--cleanup-empty-dirs` pour supprimer automatiquement les dossiers vides après traitement  
+  Flags: `--cleanup-empty-dirs` / `--ced`, `--cleanup-ignore`, `--force` / `-f`
 
-- 🔜 **Nettoyage automatique** ([#14](https://github.com/sebastienfr/picsplit/issues/14))  
-  `--cleanup-empty-dirs` pour supprimer dossiers vides après traitement
+**Fonctionnalités planifiées** :
 
 - 🔜 **Détection de doublons** ([#15](https://github.com/sebastienfr/picsplit/issues/15))  
   `--detect-duplicates` pour identifier fichiers identiques (hash SHA256)
@@ -558,6 +559,92 @@ picsplit merge --raw-ext rwx folder1 folder2 merged
 
 ---
 
+#### Automatic Empty Directory Cleanup
+
+Automatically remove empty directories after organizing files.
+
+```bash
+# Basic cleanup (with confirmation prompt)
+picsplit --cleanup-empty-dirs ./photos
+
+# Skip confirmation (useful for automation)
+picsplit --cleanup-empty-dirs --force ./photos
+
+# Ignore additional custom files beyond defaults (.DS_Store, Thumbs.db, etc.)
+picsplit --cleanup-empty-dirs --cleanup-ignore ".picasa.ini,.nomedia" ./photos
+
+# Combine with other options
+picsplit --gps --cleanup-empty-dirs --force ./photos
+```
+
+**How it works:**
+
+1. **Multi-pass bottom-up removal**: Processes directories from deepest to shallowest
+   ```
+   Pass 1: Remove /photos/import/january/ (deepest)
+   Pass 2: Remove /photos/import/ (now empty after Pass 1)
+   ```
+
+2. **Smart file ignoring**: Directories containing ONLY ignored files are considered empty
+   - **Default ignored**: `.DS_Store`, `Thumbs.db`, `desktop.ini`, `._.DS_Store`
+   - **Custom ignored**: Via `--cleanup-ignore` (comma-separated list)
+   - Ignored files are automatically deleted before removing the directory
+
+3. **Interactive confirmation** (unless `--force`):
+   ```
+   Found empty directories (count=5):
+     - /photos/import/january/
+     - /photos/import/february/
+     ...
+   
+   Do you want to remove these empty directories? [y/o/N]:
+   ```
+   - Accepts: `y`, `yes`, `o`, `oui` (case-insensitive)
+
+4. **Protected directories**: Never scanned or removed: `.git`, `.svn`, `.hg`, `node_modules`
+
+**Mode behavior:**
+- ✅ `--mode validate`: Cleanup is skipped entirely
+- ⚠️ `--mode dryrun`: Shows currently empty directories only (not directories that would become empty after file moves)
+- ✅ `--mode run`: Full multi-pass cleanup with actual removal
+
+**Limitation:**
+
+In `dryrun` mode, the cleanup preview only detects directories that are **currently empty**, not directories that **would become empty** after the simulated file moves. This is a known limitation to keep the implementation simple and performant.
+
+**Example:**
+```bash
+# Before organizing
+photos/
+├── IMG_001.jpg        # File at root
+├── import/            # Already empty directory
+│   └── old/           # Nested empty directory
+└── import2/           # Directory with file (NOT empty yet)
+    └── IMG_002.jpg
+
+# Dryrun mode shows:
+# ✅ Would remove: photos/import/old/ (currently empty)
+# ✅ Would remove: photos/import/ (currently empty)
+# ❌ Does NOT show: photos/import2/ (not empty yet, but will become empty after IMG_002.jpg is moved)
+
+# After organizing (run mode)
+photos/
+├── 2024 - 1220 - 0900/
+│   └── IMG_001.jpg
+└── 2024 - 1220 - 1015/
+    └── IMG_002.jpg
+    # import/, import/old/ AND import2/ all removed
+    # - import/ and import/old/ were already empty
+    # - import2/ became empty after IMG_002.jpg was moved
+```
+
+**Use cases:**
+- Clean up empty import folders after organizing photos
+- Remove directories left behind after culling/deleting photos
+- Maintain a clean directory structure automatically
+
+---
+
 #### Error Handling
 
 Control how picsplit behaves when encountering errors during processing.
@@ -603,13 +690,16 @@ picsplit --coe --mode dryrun ./photos
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--help` | `-h` | - | Show help message |
-| `--print-version` | `-V` | - | Display version information |
+| `--version` | `-v` | - | Display version information |
 | `--mode` | `-m` | `run` | Execution mode: `validate` (fast check), `dryrun` (simulate), `run` (execute) |
 | `--use-exif` | `-ue` | `true` | Use EXIF metadata for dates |
 | `--delta` | `-d` | `30m` | Time gap between sessions (e.g., `1h`, `45m`) |
 | `--gps` | `-g` | `false` | Enable GPS location clustering |
 | `--gps-radius` | `-gr` | `2000` | GPS clustering radius in meters |
 | `--continue-on-error` | `--coe` | `false` | Continue processing despite errors (collect all errors instead of stopping at first failure) |
+| `--cleanup-empty-dirs` | `--ced` | `false` | Automatically remove empty directories after processing |
+| `--cleanup-ignore` | `--ci` | - | Additional files to ignore when checking if directory is empty (comma-separated, e.g., `.picasa.ini,.nomedia`) |
+| `--force` | `-f` | `false` | Skip all confirmation prompts (cleanup, merge, etc.) |
 | `--log-level` | - | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `--log-format` | - | `text` | Log format: `text` or `json` |
 | `--nomvmov` | `-nmm` | `false` | Don't separate videos into `mov/` folder |
