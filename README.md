@@ -278,46 +278,46 @@ picsplit --video-ext dng --use-exif --delta 2h ./wedding-footage
 
 ## 🗺️ Roadmap
 
-picsplit évolue continuellement avec de nouvelles fonctionnalités basées sur les retours utilisateurs.
+picsplit continuously evolves with new features based on user feedback.
 
 ### ✅ v2.8.0 - Duplicate Management & Code Quality (Released - January 2026)
 
-**Objectif** : Finaliser la gestion des doublons avec déplacement automatique et améliorer la qualité du code.
+**Goal**: Finalize duplicate management with automatic move and improve code quality.
 
-**Fonctionnalités livrées** :
+**Features delivered**:
 
-- ✅ **Déplacement automatique des doublons** ([#16](https://github.com/sebastienfr/picsplit/issues/16))  
-  `--move-duplicates` déplace les doublons vers `duplicates/` folder (recommandé)
+- ✅ **Automatic duplicate move** ([#16](https://github.com/sebastienfr/picsplit/issues/16))  
+  `--move-duplicates` moves duplicates to `duplicates/` folder (recommended)
 
-- ✅ **Code 100% en anglais**  
-  Traduction complète de tous les commentaires français pour améliorer la maintenabilité
+- ✅ **100% English codebase**  
+  Complete translation of all French comments to improve maintainability
 
-**Toutes les fonctionnalités de v2.8.0 sont implémentées ! 🎉**
+**All v2.8.0 features are implemented! 🎉**
 
 ---
 
 ### ✅ v2.7.0 - Logging & Observability (Released - January 2026)
 
-**Objectif** : Améliorer le feedback utilisateur et l'observabilité pendant l'exécution.
+**Goal**: Improve user feedback and observability during execution.
 
-**Fonctionnalités livrées** :
+**Features delivered**:
 
-- ✅ **Logs structurés** ([#7](https://github.com/sebastienfr/picsplit/issues/7))  
-  Migration vers `log/slog` (stdlib Go) pour des logs typés et performants
+- ✅ **Structured logging** ([#7](https://github.com/sebastienfr/picsplit/issues/7))  
+  Migration to `log/slog` (Go stdlib) for typed and performant logs
 
-- ✅ **Niveaux de log configurables** ([#8](https://github.com/sebastienfr/picsplit/issues/8))  
-  `--log-level debug|info|warn|error` + formats Text/JSON (`--log-format`)
+- ✅ **Configurable log levels** ([#8](https://github.com/sebastienfr/picsplit/issues/8))  
+  `--log-level debug|info|warn|error` + Text/JSON formats (`--log-format`)
 
-- ✅ **Barre de progression temps réel** ([#9](https://github.com/sebastienfr/picsplit/issues/9))  
-  Affichage du % d'avancement avec détection automatique TTY
+- ✅ **Real-time progress bar** ([#9](https://github.com/sebastienfr/picsplit/issues/9))  
+  Shows completion percentage with automatic TTY detection
 
-- ✅ **Summary enrichi avec métriques** ([#10](https://github.com/sebastienfr/picsplit/issues/10))  
-  Métriques détaillées (durée, throughput, stats par type, erreurs/warnings)
+- ✅ **Enhanced summary with metrics** ([#10](https://github.com/sebastienfr/picsplit/issues/10))  
+  Detailed metrics (duration, throughput, stats by type, errors/warnings)
 
-- ✅ **Erreurs typées avec contexte** ([#11](https://github.com/sebastienfr/picsplit/issues/11))  
-  Messages d'erreur structurés avec suggestions de correction automatiques
+- ✅ **Typed errors with context** ([#11](https://github.com/sebastienfr/picsplit/issues/11))  
+  Structured error messages with automatic correction suggestions
 
-**Exemple de nouveau summary** :
+**Example of new summary**:
 ```
 === Processing Summary ===
 Duration: 2m 35s
@@ -339,26 +339,26 @@ Disk usage: 24.5 GB moved, 158.0 MB/s throughput
 ⚠ Operation completed with 3 errors
 ```
 
-**Workflow recommandé** :
+**Recommended workflow**:
 ```bash
-# 1. Validation rapide (5s) - détecte les problèmes critiques
+# 1. Fast validation (5s) - detect critical issues
 picsplit --mode validate /photos
 
-# 2. Dry-run complet (30s) - simule tous les déplacements
+# 2. Complete dry-run (30s) - simulate all moves
 picsplit --mode dryrun /photos
 
-# 3. Exécution réelle (mode par défaut)
+# 3. Real execution (default mode)
 picsplit /photos
-# ou explicitement: picsplit --mode run /photos
+# or explicitly: picsplit --mode run /photos
 ```
 
 ---
 
-### 💡 Suggérer une fonctionnalité
+### 💡 Suggest a Feature
 
-Vous avez une idée pour améliorer picsplit ? [Ouvrez une issue](https://github.com/sebastienfr/picsplit/issues/new) pour proposer votre suggestion !
+Have an idea to improve picsplit? [Open an issue](https://github.com/sebastienfr/picsplit/issues/new) to propose your suggestion!
 
-**Historique complet** : Consultez le [CHANGELOG](./CHANGELOG.md) pour voir toutes les évolutions depuis la v1.0.
+**Full history**: Check the [CHANGELOG](./CHANGELOG.md) to see all changes since v1.0.
 
 ---
 
