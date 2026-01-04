@@ -19,6 +19,10 @@ var (
 	// Default: "dev" for development builds without ldflags
 	version = "dev"
 
+	// buildTime will be set via ldflags during build (-X main.buildTime=...)
+	// This is the actual build time, not the commit time
+	buildTime = ""
+
 	// path -path : the path to the folder containing the files to be processed
 	path = "."
 
@@ -31,8 +35,8 @@ var (
 	// raw -nomvraw : do not move the raw files in a separate subfolder called raw
 	noMoveRaw = false
 
-	// dryRun -dryrun : print the modification to be done without really moving the files
-	dryRun = false
+	// mode -mode : execution mode (validate, dryrun, run)
+	executionMode = "run"
 
 	// useEXIF -use-exif : use EXIF metadata for dates (photos and videos)
 	useEXIF = true
@@ -82,7 +86,6 @@ const (
 
 	// Flag names
 	flagForce     = "force"
-	flagDryRun    = "dryrun"
 	flagLogLevel  = "log-level"
 	flagLogFormat = "log-format"
 )
@@ -148,16 +151,20 @@ func setupLogger(logLevel, logFormat string) {
 
 // getBuildInfo returns version information from build metadata
 // Version is injected via ldflags, VCS info comes from runtime/debug (Go 1.18+)
-func getBuildInfo() (string, string, string) {
-	buildTime := time.Now().Format(time.RFC3339)
+func getBuildInfo() (string, string, string, string) {
+	localBuildTime := buildTime // From ldflags
+	if localBuildTime == "" {
+		localBuildTime = time.Now().Format(time.RFC3339)
+	}
+	commitTime := ""
 	gitHash := "unknown"
 
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		return version, buildTime, gitHash
+		return version, localBuildTime, commitTime, gitHash
 	}
 
-	// Extract VCS information (commit hash, build time, dirty flag)
+	// Extract VCS information (commit hash, commit time, dirty flag)
 	for _, setting := range info.Settings {
 		switch setting.Key {
 		case "vcs.revision":
@@ -167,7 +174,7 @@ func getBuildInfo() (string, string, string) {
 				gitHash = setting.Value
 			}
 		case "vcs.time":
-			buildTime = setting.Value
+			commitTime = setting.Value
 		case "vcs.modified":
 			if setting.Value == "true" {
 				gitHash += "-dirty"
@@ -175,7 +182,7 @@ func getBuildInfo() (string, string, string) {
 		}
 	}
 
-	return version, buildTime, gitHash
+	return version, localBuildTime, commitTime, gitHash
 }
 
 func main() {
@@ -186,19 +193,32 @@ func main() {
 	}
 
 	// Get build information
-	version, buildTime, gitHash := getBuildInfo()
+	version, localBuildTime, commitTime, gitHash := getBuildInfo()
 
-	// Parse build time
-	buildTimeObj, err := time.Parse(time.RFC3339, buildTime)
+	// Parse build time (prefer local build time)
+	buildTimeObj, err := time.Parse(time.RFC3339, localBuildTime)
 	if err != nil {
-		buildTimeObj = time.Now()
+		// Try parsing as simple format from Makefile
+		buildTimeObj, err = time.Parse("2006-01-02 15:04:05 MST", localBuildTime)
+		if err != nil {
+			buildTimeObj = time.Now()
+		}
+	}
+
+	// Format version string with build info
+	versionStr := version + ", built on " + buildTimeObj.Format("2006-01-02 15:04:05 -0700 MST") +
+		", git hash " + gitHash
+	if commitTime != "" {
+		commitTimeObj, err := time.Parse(time.RFC3339, commitTime)
+		if err == nil {
+			versionStr += " (commit: " + commitTimeObj.Format("2006-01-02 15:04:05") + ")"
+		}
 	}
 
 	app := &cli.App{
-		Name:  appName,
-		Usage: appUsage,
-		Version: version + ", build on " + buildTimeObj.Format("2006-01-02 15:04:05 -0700 MST") +
-			", git hash " + gitHash,
+		Name:    appName,
+		Usage:   appUsage,
+		Version: versionStr,
 		Authors: []*cli.Author{
 			{Name: authorName},
 		},
@@ -215,24 +235,31 @@ func main() {
    IMPORTANT: GPS location folders (e.g., "48.8566N-2.3522E") cannot be merged.
    Only time-based folders (e.g., "2025 - 0616 - 0945") are supported.
    
+   Execution modes (--mode):
+   - validate: Fast check (validates folders, counts files, detects conflicts)
+   - dryrun:   Simulation (shows what would be done without moving files)
+   - run:      Real execution (default - moves files and deletes sources)
+   
    Conflict handling:
    - By default, asks user how to resolve each conflict (rename/skip/overwrite)
    - Use --force to automatically overwrite all conflicts without asking
    
    Examples:
-     picsplit merge "2025 - 0616 - 0945" "2025 - 0616 - 1430" "2025 - 0616 - merged"
-     picsplit merge folder1 folder2 folder3 target --force
-     picsplit merge folder1 folder2 target --dryrun -v`,
+      picsplit merge "2025 - 0616 - 0945" "2025 - 0616 - 1430" "2025 - 0616 - merged"
+      picsplit merge folder1 folder2 folder3 target --force
+      picsplit merge folder1 folder2 target --mode validate
+      picsplit merge folder1 folder2 target --mode dryrun`,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    flagForce,
 						Aliases: []string{"f"},
 						Usage:   "Overwrite files without asking on conflict",
 					},
-					&cli.BoolFlag{
-						Name:    flagDryRun,
-						Aliases: []string{"dr"},
-						Usage:   "Simulate merge without moving files",
+					&cli.StringFlag{
+						Name:    "mode",
+						Aliases: []string{"m"},
+						Value:   "run",
+						Usage:   "Execution mode: validate (fast check), dryrun (simulate), run (execute)",
 					},
 					&cli.StringFlag{
 						Name:    flagLogLevel,
@@ -295,12 +322,25 @@ func main() {
 						return fmt.Errorf("invalid RAW extensions: %w", err)
 					}
 
+					// Handle execution mode
+					mode := handler.ExecutionMode(c.String("mode"))
+
+					// Validate execution mode
+					validModes := map[handler.ExecutionMode]bool{
+						handler.ModeValidate: true,
+						handler.ModeDryRun:   true,
+						handler.ModeRun:      true,
+					}
+					if !validModes[mode] {
+						return fmt.Errorf("invalid --mode value: %s (must be: validate, dryrun, or run)", mode)
+					}
+
 					// Debug info
 					slog.Debug("merge configuration",
 						"sources", sourceFolders,
 						"target", targetFolder,
 						"force", c.Bool(flagForce),
-						"dryrun", c.Bool(flagDryRun))
+						"mode", mode)
 					if len(photoExts) > 0 {
 						slog.Debug("custom photo extensions", "extensions", strings.Join(photoExts, ", "))
 					}
@@ -316,7 +356,7 @@ func main() {
 						SourceFolders:   sourceFolders,
 						TargetFolder:    targetFolder,
 						Force:           c.Bool(flagForce),
-						DryRun:          c.Bool(flagDryRun),
+						Mode:            mode,
 						CustomPhotoExts: photoExts,
 						CustomVideoExts: videoExts,
 						CustomRawExts:   rawExts,
@@ -349,11 +389,12 @@ func main() {
 			Destination: &noMoveRaw,
 			Usage:       "Do not move raw files in a separate raw folder",
 		},
-		&cli.BoolFlag{
-			Name:        "dryrun",
-			Aliases:     []string{"dr"},
-			Destination: &dryRun,
-			Usage:       "Only print actions to do, do not move physically the files",
+		&cli.StringFlag{
+			Name:        "mode",
+			Aliases:     []string{"m"},
+			Value:       "run",
+			Destination: &executionMode,
+			Usage:       "Execution mode: validate (fast check), dryrun (simulate), run (execute)",
 		},
 		&cli.StringFlag{
 			Name:    flagLogLevel,
@@ -454,7 +495,7 @@ func main() {
 		slog.Debug("configuration",
 			"path", path,
 			"delta_minutes", durationDelta.Minutes(),
-			"dry_run", dryRun,
+			"mode", executionMode,
 			"no_move_movies", noMoveMovie,
 			"no_move_raw", noMoveRaw,
 			"use_exif", useEXIF,
@@ -481,12 +522,24 @@ func main() {
 			return fmt.Errorf("provided path %s is not a directory", path)
 		}
 
+		// Handle execution mode
+		mode := handler.ExecutionMode(executionMode)
+
+		// Validate execution mode
+		validModes := map[handler.ExecutionMode]bool{
+			handler.ModeValidate: true,
+			handler.ModeDryRun:   true,
+			handler.ModeRun:      true,
+		}
+		if !validModes[mode] {
+			return fmt.Errorf("invalid --mode value: %s (must be: validate, dryrun, or run)", mode)
+		}
+
 		cfg := &handler.Config{
 			BasePath:          path,
 			Delta:             durationDelta,
 			NoMoveMovie:       noMoveMovie,
 			NoMoveRaw:         noMoveRaw,
-			DryRun:            dryRun,
 			UseEXIF:           useEXIF,
 			UseGPS:            useGPS,
 			GPSRadius:         gpsRadius,
@@ -495,6 +548,7 @@ func main() {
 			CustomRawExts:     rawExts,
 			SeparateOrphanRaw: separateOrphanRaw,
 			ContinueOnError:   continueOnError,
+			Mode:              mode,
 			LogLevel:          c.String(flagLogLevel),
 			LogFormat:         c.String(flagLogFormat),
 		}

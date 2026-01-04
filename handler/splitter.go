@@ -84,7 +84,8 @@ func isOrganizedFolder(basePath string) bool {
 		totalDirs++
 
 		// Check if name matches date format pattern (YYYY - MMDD - HHMM)
-		if len(name) == 19 && name[4:7] == " - " && name[11:14] == " - " {
+		// Format: "2006 - 0102 - 1504" has length 18
+		if len(name) == 18 && name[4:7] == " - " && name[11:14] == " - " {
 			if _, err := time.Parse(dateFormatPattern, name); err == nil {
 				organizedDirs++
 				slog.Debug("found organized subfolder", "folder", name)
@@ -227,7 +228,7 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 // processGroup traite tous les fichiers d'un groupe
 func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *ProcessingStats) error {
 	// Créer dossier principal (si pas dry-run)
-	if !cfg.DryRun {
+	if cfg.Mode != ModeDryRun {
 		groupDir := filepath.Join(cfg.BasePath, group.folderName)
 		if err := os.MkdirAll(groupDir, permDirectory); err != nil {
 			return fmt.Errorf("failed to create folder %s: %w", groupDir, err)
@@ -273,7 +274,7 @@ func refreshOrphanRAW(cfg *Config, ctx *executionContext) error {
 	}
 	defer func() {
 		stats.EndTime = time.Now()
-		stats.PrintSummary(cfg.DryRun)
+		stats.PrintSummary(cfg.Mode == ModeDryRun)
 	}()
 
 	// Check if we're IN a date-formatted folder (e.g., running picsplit inside "2024 - 1220 - 0900")
@@ -287,7 +288,14 @@ func refreshOrphanRAW(cfg *Config, ctx *executionContext) error {
 		if _, err := time.Parse(dateFormatPattern, folderName); err == nil {
 			// We're inside a date-formatted folder, process it directly
 			slog.Debug("processing current date-formatted folder", "folder", folderName)
-			return processOrganizedFolder(cfg, ctx, stats, cfg.BasePath, folderName)
+			if err := processOrganizedFolder(cfg, ctx, stats, cfg.BasePath, folderName); err != nil {
+				return err
+			}
+			// Fix stats before returning
+			stats.TotalFiles = stats.RawCount
+			stats.PhotoCount = 0
+			stats.VideoCount = 0
+			return nil
 		}
 	}
 
@@ -322,10 +330,12 @@ func refreshOrphanRAW(cfg *Config, ctx *executionContext) error {
 		}
 	}
 
-	// Fix stats for proper display
-	if stats.TotalFiles == 0 {
-		stats.TotalFiles = stats.RawCount
-	}
+	// Fix stats for proper display in orphan RAW mode
+	// In this mode, we only process RAW files
+	stats.TotalFiles = stats.RawCount
+	stats.PhotoCount = 0 // We don't process photos in orphan mode
+	stats.VideoCount = 0 // We don't process videos in orphan mode
+
 	return nil
 }
 
@@ -357,6 +367,7 @@ func processOrganizedFolder(cfg *Config, ctx *executionContext, stats *Processin
 		}
 
 		stats.RawCount++
+		stats.ProcessedFiles++ // Count all RAW files as processed (examined)
 		rawFilePath := filepath.Join(rawPath, rawFileName)
 
 		// Check if RAW has associated JPEG/HEIC in parent folder
@@ -365,17 +376,18 @@ func processOrganizedFolder(cfg *Config, ctx *executionContext, stats *Processin
 			stats.OrphanRaw++
 
 			orphanPath := filepath.Join(folderPath, orphanFolderName)
-			if !cfg.DryRun {
+			if cfg.Mode != ModeDryRun {
 				if err := os.MkdirAll(orphanPath, permDirectory); err != nil {
 					slog.Error("failed to create orphan folder", "folder", folderName, "error", err)
+					stats.ProcessedFiles-- // Decrement if we couldn't process
 					continue
 				}
 			}
 
 			destPath := filepath.Join(orphanPath, rawFileName)
-			slog.Info("moving orphan RAW", "from", rawFilePath, "to", destPath, "dryrun", cfg.DryRun)
+			slog.Info("moving orphan RAW", "from", rawFilePath, "to", destPath, "dryrun", cfg.Mode == ModeDryRun)
 
-			if !cfg.DryRun {
+			if cfg.Mode != ModeDryRun {
 				if err := os.Rename(rawFilePath, destPath); err != nil {
 					stats.Errors = append(stats.Errors, &PicsplitError{
 						Type: ErrTypeIO,
@@ -384,11 +396,8 @@ func processOrganizedFolder(cfg *Config, ctx *executionContext, stats *Processin
 						Err:  err,
 					})
 					slog.Error("failed to move orphan RAW", "file", rawFileName, "error", err)
-				} else {
-					stats.ProcessedFiles++
+					stats.ProcessedFiles-- // Decrement on error
 				}
-			} else {
-				stats.ProcessedFiles++
 			}
 		} else {
 			// Paired RAW - keep in raw/
@@ -407,6 +416,31 @@ func Split(cfg *Config) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
+	// Handle execution modes
+	switch cfg.Mode {
+	case ModeValidate:
+		// Fast validation without EXIF extraction
+		report, err := Validate(cfg)
+		if err != nil {
+			return err
+		}
+		report.Print()
+		if report.HasCriticalErrors() {
+			return fmt.Errorf("validation found %d critical error(s)", report.CriticalErrorCount())
+		}
+		return nil
+
+	case ModeDryRun, ModeRun:
+		// Continue with split processing
+		return splitInternal(cfg)
+
+	default:
+		return fmt.Errorf("unknown execution mode: %v", cfg.Mode)
+	}
+}
+
+// splitInternal is the internal implementation of Split
+func splitInternal(cfg *Config) error {
 	// Create execution context with custom extensions
 	ctx, err := newExecutionContext(cfg)
 	if err != nil {
@@ -439,7 +473,7 @@ func Split(cfg *Config) error {
 	}
 	defer func() {
 		stats.EndTime = time.Now()
-		stats.PrintSummary(cfg.DryRun)
+		stats.PrintSummary(cfg.Mode == ModeDryRun)
 	}()
 
 	// Count file types and ModTime fallback
@@ -613,14 +647,14 @@ func processPicture(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFol
 			}
 		}
 
-		rawDir, err := findOrCreateFolder(baseRawDir, targetFolder, cfg.DryRun)
+		rawDir, err := findOrCreateFolder(baseRawDir, targetFolder, cfg.Mode == ModeDryRun)
 		if err != nil {
 			return err
 		}
 		destDir = filepath.Join(datedFolder, rawDir)
 	}
 
-	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.DryRun)
+	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.Mode == ModeDryRun)
 }
 
 // processMovie handles the processing of movie files
@@ -632,14 +666,14 @@ func processMovie(cfg *Config, fi os.FileInfo, datedFolder string) error {
 	// Move to separate mov folder if needed
 	if !cfg.NoMoveMovie {
 		baseMovieDir := filepath.Join(cfg.BasePath, datedFolder)
-		movieDir, err := findOrCreateFolder(baseMovieDir, movFolderName, cfg.DryRun)
+		movieDir, err := findOrCreateFolder(baseMovieDir, movFolderName, cfg.Mode == ModeDryRun)
 		if err != nil {
 			return err
 		}
 		destDir = filepath.Join(datedFolder, movieDir)
 	}
 
-	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.DryRun)
+	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.Mode == ModeDryRun)
 }
 
 func findOrCreateFolder(basedir, name string, dryRun bool) (string, error) {

@@ -21,7 +21,7 @@ picsplit moves files on your filesystem. While extensively tested, you should NE
 
 **Recommended workflow:**
 1. ✅ Create a backup or working copy of your photos
-2. ✅ Run picsplit on the copy (use `--dryrun` first to preview)
+2. ✅ Run picsplit on the copy (use `--mode validate` then `--mode dryrun` first to preview)
 3. ✅ Verify the results before deleting originals
 
 **USE AT YOUR OWN RISK.** The authors are not responsible for any data loss.
@@ -65,8 +65,8 @@ picsplit moves files on your filesystem. While extensively tested, you should NE
 - 🎨 **Custom File Extensions**  
   Add support for new file formats at runtime without recompiling
 
-- 🔍 **Safe Preview Mode**  
-  Dry-run mode lets you preview all changes before applying them
+- 🔍 **Safe Preview Modes**  
+  Validate mode (fast check) and dry-run mode (full simulation) let you preview changes before applying them
 
 - 🗂️ **Smart Organization**  
   Automatically separates RAW files and videos into dedicated subfolders  
@@ -109,10 +109,13 @@ See [Installation](#-installation) for detailed instructions.
 # 1. ALWAYS work on a copy of your photos!
 cp -r ~/Photos/DCIM ~/Photos/DCIM_backup
 
-# 2. Preview changes (dry run)
-picsplit --dryrun -v ~/Photos/DCIM_backup
+# 2. Fast validation (5s - check for issues)
+picsplit --mode validate ~/Photos/DCIM_backup
 
-# 3. Organize photos by time
+# 3. Preview changes (dry run - full simulation)
+picsplit --mode dryrun ~/Photos/DCIM_backup
+
+# 4. Organize photos by time
 picsplit ~/Photos/DCIM_backup
 ```
 
@@ -181,8 +184,11 @@ picsplit --use-exif --delta 1h ./DCIM
 
 **Solution:**
 ```bash
-# Preview merge first
-picsplit merge "2024-1220-0900" "2024-1220-0915" "2024-1220-birthday" --dryrun
+# Fast validation first (check for conflicts)
+picsplit merge --mode validate "2024-1220-0900" "2024-1220-0915" "2024-1220-birthday"
+
+# Preview merge (full simulation)
+picsplit merge --mode dryrun "2024-1220-0900" "2024-1220-0915" "2024-1220-birthday"
 
 # Execute merge with conflict resolution
 picsplit merge "2024-1220-0900" "2024-1220-0915" "2024-1220-birthday"
@@ -319,35 +325,40 @@ Disk usage: 24.5 GB moved, 158.0 MB/s throughput
 
 ---
 
-### 🚀 v2.8.0 - Robustness & Advanced Features (Q1 2026)
+### 🚀 v2.7.0 - Robustness & Advanced Features (Upcoming)
 
 **Objectif** : Renforcer la robustesse avec gestion d'erreurs avancée et nouveaux modes.
 
-**Nouvelles fonctionnalités** :
+**Fonctionnalités livrées** :
 
-- **Mode continue-on-error** ([#12](https://github.com/sebastienfr/picsplit/issues/12))  
-  Traiter tous les fichiers possibles sans s'arrêter au premier échec (comportement par défaut depuis v2.7.0)
+- ✅ **Mode continue-on-error** ([#12](https://github.com/sebastienfr/picsplit/issues/12))  
+  Traiter tous les fichiers possibles sans s'arrêter au premier échec  
+  Flag: `--continue-on-error` / `--coe`
 
-- **⚠️ Mode validation rapide** ([#13](https://github.com/sebastienfr/picsplit/issues/13))  
+- ✅ **Mode validation rapide** ([#13](https://github.com/sebastienfr/picsplit/issues/13))  
   `--mode validate|dryrun|run` pour pré-vérification ultra-rapide (5s vs 2m)  
-  **Breaking change** : Retire `--dryrun` (remplacé par `--mode dryrun`)
+  **Breaking change** : Retire `--dryrun` (remplacé par `--mode dryrun`)  
+  Nouveau fichier: `handler/validator.go` avec `Validate()` et `ValidationReport`
 
-- **Nettoyage automatique** ([#14](https://github.com/sebastienfr/picsplit/issues/14))  
+**Fonctionnalités planifiées** :
+
+- 🔜 **Nettoyage automatique** ([#14](https://github.com/sebastienfr/picsplit/issues/14))  
   `--cleanup-empty-dirs` pour supprimer dossiers vides après traitement
 
-- **Détection de doublons** ([#15](https://github.com/sebastienfr/picsplit/issues/15))  
+- 🔜 **Détection de doublons** ([#15](https://github.com/sebastienfr/picsplit/issues/15))  
   `--detect-duplicates` pour identifier fichiers identiques (hash SHA256)
 
-**Exemple de workflow v2.8.0** :
+**Workflow recommandé** :
 ```bash
-# 1. Validation rapide (5s)
-picsplit /photos --mode validate
+# 1. Validation rapide (5s) - détecte les problèmes critiques
+picsplit --mode validate /photos
 
-# 2. Dry-run complet (30s)
-picsplit /photos --mode dryrun
+# 2. Dry-run complet (30s) - simule tous les déplacements
+picsplit --mode dryrun /photos
 
-# 3. Exécution réelle avec détection doublons
-picsplit /photos --detect-duplicates --skip-duplicates --cleanup-empty-dirs
+# 3. Exécution réelle (mode par défaut)
+picsplit /photos
+# ou explicitement: picsplit --mode run /photos
 ```
 
 ---
@@ -433,8 +444,14 @@ picsplit --use-exif=false ./photos
 
 #### Preview before applying
 ```bash
-# Dry run mode (no files moved)
-picsplit --dryrun ./photos
+# Fast validation (5 seconds - no EXIF extraction)
+picsplit --mode validate ./photos
+
+# Dry run mode (full simulation - with EXIF extraction)
+picsplit --mode dryrun ./photos
+
+# Explicit run mode (same as default)
+picsplit --mode run ./photos
 ```
 
 #### Configure logging
@@ -492,14 +509,17 @@ photos/
 Combine multiple time-based folders into one.
 
 ```bash
+# Fast validation (check for conflicts without processing)
+picsplit merge --mode validate folder1 folder2 merged-folder
+
+# Preview merge operations (full simulation)
+picsplit merge --mode dryrun folder1 folder2 merged-folder
+
 # Interactive merge (prompts for conflicts)
 picsplit merge folder1 folder2 merged-folder
 
 # Force overwrite all conflicts
-picsplit merge folder1 folder2 merged --force
-
-# Preview merge operations  
-picsplit merge folder1 folder2 merged --dryrun
+picsplit merge --force folder1 folder2 merged
 ```
 
 **Conflict resolution options:**
@@ -553,7 +573,7 @@ picsplit --continue-on-error ./photos
 picsplit --coe ./photos
 
 # Combine with dry run to preview error handling
-picsplit --coe --dryrun ./photos
+picsplit --coe --mode dryrun ./photos
 ```
 
 **Behavior:**
@@ -584,11 +604,11 @@ picsplit --coe --dryrun ./photos
 |------|-------|---------|-------------|
 | `--help` | `-h` | - | Show help message |
 | `--print-version` | `-V` | - | Display version information |
+| `--mode` | `-m` | `run` | Execution mode: `validate` (fast check), `dryrun` (simulate), `run` (execute) |
 | `--use-exif` | `-ue` | `true` | Use EXIF metadata for dates |
 | `--delta` | `-d` | `30m` | Time gap between sessions (e.g., `1h`, `45m`) |
 | `--gps` | `-g` | `false` | Enable GPS location clustering |
 | `--gps-radius` | `-gr` | `2000` | GPS clustering radius in meters |
-| `--dryrun` | `-dr` | `false` | Preview changes without moving files |
 | `--continue-on-error` | `--coe` | `false` | Continue processing despite errors (collect all errors instead of stopping at first failure) |
 | `--log-level` | - | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `--log-format` | - | `text` | Log format: `text` or `json` |
@@ -603,8 +623,8 @@ picsplit --coe --dryrun ./photos
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--mode` | `run` | Execution mode: `validate`, `dryrun`, `run` |
 | `--force` | `false` | Auto-overwrite conflicts |
-| `--dryrun` | `false` | Preview merge operations |
 | `--log-level` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `--log-format` | `text` | Log format: `text` or `json` |
 
@@ -791,7 +811,7 @@ Run picsplit again on the same folder - it will skip already organized files.
 
 There's no built-in undo. Best practice:
 1. Always work on a copy
-2. Use `--dryrun` to preview before applying
+2. Use `--mode validate` for fast check, then `--mode dryrun` to preview before applying
 3. Keep backups of your originals
 
 </details>

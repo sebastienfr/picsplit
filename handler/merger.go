@@ -36,10 +36,10 @@ const (
 //
 //nolint:govet // Field alignment is less important than logical grouping
 type MergeConfig struct {
-	SourceFolders []string // Source folders to merge (min 1)
-	TargetFolder  string   // Destination folder
-	Force         bool     // Force overwrite on conflicts
-	DryRun        bool     // Simulation mode
+	SourceFolders []string      // Source folders to merge (min 1)
+	TargetFolder  string        // Destination folder
+	Force         bool          // Force overwrite on conflicts
+	Mode          ExecutionMode // Execution mode: validate, dryrun, run (v2.8.0+)
 
 	// Custom extensions (v2.5.0+)
 	CustomPhotoExts []string // Additional photo extensions
@@ -259,10 +259,194 @@ func askUserConflictResolution(conflict *FileConflict) (string, bool, error) {
 	}
 }
 
-// Merge merges multiple source folders into a target folder
+// Merge merges multiple source folders into a target folder.
+// It supports three execution modes:
+//   - ModeValidate: Fast validation (checks folders, counts files, detects conflicts)
+//   - ModeDryRun: Full simulation (shows what would be done without moving files)
+//   - ModeRun: Real execution (default - actually moves files and deletes source folders)
 //
 //nolint:gocyclo // Complex conflict handling logic, acceptable for this use case
 func Merge(cfg *MergeConfig) error {
+	// Handle execution mode
+	switch cfg.Mode {
+	case ModeValidate:
+		// Fast validation: check folders, count files, detect potential conflicts
+		return validateMerge(cfg)
+
+	case ModeDryRun:
+		// Full simulation: process files but don't actually move them
+		return mergeInternal(cfg)
+
+	case ModeRun:
+		// Real execution: move files and delete source folders
+		return mergeInternal(cfg)
+
+	default:
+		return fmt.Errorf("invalid execution mode: %s", cfg.Mode)
+	}
+}
+
+// MergeValidationReport holds the results of a fast merge validation
+type MergeValidationReport struct {
+	SourceFolders   []string
+	TargetFolder    string
+	TotalFiles      int
+	TotalBytes      int64
+	Conflicts       int
+	SourceBreakdown map[string]int // Files per source folder
+	Errors          []error
+	Warnings        []string
+}
+
+// Print displays the merge validation report
+func (r *MergeValidationReport) Print() {
+	fmt.Println()
+	slog.Info("=== Merge Validation Summary ===")
+
+	// Sources
+	slog.Info("source folders to merge", "count", len(r.SourceFolders))
+	for i, src := range r.SourceFolders {
+		fileCount := r.SourceBreakdown[src]
+		slog.Info("source", "index", i+1, "path", src, "files", fileCount)
+	}
+
+	// Target
+	slog.Info("target folder", "path", r.TargetFolder)
+
+	// Files to merge
+	slog.Info("total files to merge", "count", r.TotalFiles)
+	slog.Info("estimated disk space", "size", FormatBytes(r.TotalBytes))
+
+	// Conflicts
+	if r.Conflicts > 0 {
+		fmt.Println()
+		slog.Warn("potential conflicts detected", "count", r.Conflicts)
+		slog.Warn("→ Use --force to auto-overwrite, or resolve manually during merge")
+	}
+
+	// Errors
+	if len(r.Errors) > 0 {
+		fmt.Println()
+		slog.Error("critical issues detected", "count", len(r.Errors))
+		for _, err := range r.Errors {
+			slog.Error(err.Error())
+		}
+	}
+
+	// Warnings
+	if len(r.Warnings) > 0 {
+		fmt.Println()
+		slog.Warn("warnings detected", "count", len(r.Warnings))
+		for _, warning := range r.Warnings {
+			slog.Warn(warning)
+		}
+	}
+
+	// Final recommendation
+	fmt.Println()
+	if len(r.Errors) > 0 {
+		slog.Warn("→ Fix critical issues before proceeding")
+	} else {
+		slog.Info("✓ No critical issues detected")
+	}
+	slog.Info("→ Run with --mode dryrun to simulate, or --mode run to execute")
+}
+
+// validateMerge performs fast validation of merge operation without processing files
+func validateMerge(cfg *MergeConfig) error {
+	// Create execution context with custom extensions
+	tempCfg := &Config{
+		CustomPhotoExts: cfg.CustomPhotoExts,
+		CustomVideoExts: cfg.CustomVideoExts,
+		CustomRawExts:   cfg.CustomRawExts,
+	}
+
+	ctx, err := newExecutionContext(tempCfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize extension context: %w", err)
+	}
+
+	// Validate configuration
+	if err := validateMergeFolders(cfg.SourceFolders, cfg.TargetFolder, ctx); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Build validation report
+	report := &MergeValidationReport{
+		SourceFolders:   cfg.SourceFolders,
+		TargetFolder:    cfg.TargetFolder,
+		SourceBreakdown: make(map[string]int),
+		Errors:          []error{},
+		Warnings:        []string{},
+	}
+
+	// Collect files from all sources and detect conflicts
+	targetFiles := make(map[string]bool) // Track files already in target
+
+	// Check if target exists and collect existing files
+	if info, err := os.Stat(cfg.TargetFolder); err == nil && info.IsDir() {
+		report.Warnings = append(report.Warnings,
+			fmt.Sprintf("Target folder already exists: %s", cfg.TargetFolder))
+
+		// Collect existing files in target
+		existingFiles, err := collectFilesRecursive(cfg.TargetFolder)
+		if err != nil {
+			report.Errors = append(report.Errors,
+				fmt.Errorf("failed to scan existing target folder: %w", err))
+		} else {
+			for _, file := range existingFiles {
+				relPath, _ := filepath.Rel(cfg.TargetFolder, file)
+				targetFiles[relPath] = true
+			}
+		}
+	}
+
+	// Process each source folder
+	for _, sourceFolder := range cfg.SourceFolders {
+		files, err := collectFilesRecursive(sourceFolder)
+		if err != nil {
+			report.Errors = append(report.Errors,
+				fmt.Errorf("failed to scan source folder %s: %w", sourceFolder, err))
+			continue
+		}
+
+		report.SourceBreakdown[sourceFolder] = len(files)
+		report.TotalFiles += len(files)
+
+		// Calculate size and detect conflicts
+		for _, file := range files {
+			// Get file size
+			if info, err := os.Stat(file); err == nil {
+				report.TotalBytes += info.Size()
+			}
+
+			// Check for conflicts
+			relPath, err := filepath.Rel(sourceFolder, file)
+			if err != nil {
+				continue
+			}
+
+			if targetFiles[relPath] {
+				report.Conflicts++
+			} else {
+				targetFiles[relPath] = true
+			}
+		}
+	}
+
+	// Print report
+	report.Print()
+
+	// Return error if critical issues found
+	if len(report.Errors) > 0 {
+		return fmt.Errorf("validation found %d critical issue(s)", len(report.Errors))
+	}
+
+	return nil
+}
+
+// mergeInternal is the internal implementation of Merge
+func mergeInternal(cfg *MergeConfig) error {
 	// Create execution context with custom extensions
 	tempCfg := &Config{
 		CustomPhotoExts: cfg.CustomPhotoExts,
@@ -292,12 +476,12 @@ func Merge(cfg *MergeConfig) error {
 	if cfg.Force {
 		slog.Info("merge mode: FORCE", "auto_overwrite", true)
 	}
-	if cfg.DryRun {
+	if cfg.Mode == ModeDryRun {
 		slog.Info("merge mode: DRY RUN", "simulation", true)
 	}
 
 	// Create target folder if it doesn't exist
-	if !cfg.DryRun {
+	if cfg.Mode != ModeDryRun {
 		if err := os.MkdirAll(cfg.TargetFolder, permDirectory); err != nil {
 			return fmt.Errorf("failed to create target folder: %w", err)
 		}
@@ -355,7 +539,7 @@ func Merge(cfg *MergeConfig) error {
 				} else if applyToAll {
 					resolution = globalResolution
 				} else {
-					if cfg.DryRun {
+					if cfg.Mode == ModeDryRun {
 						// In dry-run, simulate asking user
 						slog.Warn("[DRY RUN] conflict detected (would ask user)", "file", filepath.Base(targetPath))
 						resolution = conflictSkip // Default for dry-run
@@ -401,14 +585,14 @@ func Merge(cfg *MergeConfig) error {
 
 			// Create parent directory
 			targetDir := filepath.Dir(finalTargetPath)
-			if !cfg.DryRun {
+			if cfg.Mode != ModeDryRun {
 				if err := os.MkdirAll(targetDir, permDirectory); err != nil {
 					return fmt.Errorf("failed to create directory %s: %w", targetDir, err)
 				}
 			}
 
 			// Move the file
-			if cfg.DryRun {
+			if cfg.Mode == ModeDryRun {
 				slog.Info("[DRY RUN] would move file", "source", file, "dest", finalTargetPath)
 			} else {
 				if err := os.Rename(file, finalTargetPath); err != nil {
@@ -420,7 +604,7 @@ func Merge(cfg *MergeConfig) error {
 		}
 
 		// Cleanup source folder after processing all files
-		if cfg.DryRun {
+		if cfg.Mode == ModeDryRun {
 			slog.Info("[DRY RUN] would delete source folder", "folder", sourceFolder)
 		} else {
 			// Remove the folder (including empty subdirectories like mov/, raw/)
@@ -450,7 +634,7 @@ func Merge(cfg *MergeConfig) error {
 		"folders_deleted", stats.foldersDeleted,
 		"target_folder", cfg.TargetFolder)
 
-	if cfg.DryRun {
+	if cfg.Mode == ModeDryRun {
 		slog.Info("DRY RUN completed - no files were actually moved")
 	}
 

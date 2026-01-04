@@ -10,13 +10,21 @@ const (
 	defaultGPSRadiusMeters = 2000.0 // Rayon par défaut pour le clustering GPS : 2km
 )
 
+// ExecutionMode defines the mode of execution
+type ExecutionMode string
+
+const (
+	ModeValidate ExecutionMode = "validate" // Fast validation (scan + count)
+	ModeDryRun   ExecutionMode = "dryrun"   // Full simulation (scan + EXIF + simulate)
+	ModeRun      ExecutionMode = "run"      // Real execution (default)
+)
+
 // Config holds all configuration for the split operation
 type Config struct {
 	BasePath    string
 	Delta       time.Duration
 	NoMoveMovie bool
 	NoMoveRaw   bool
-	DryRun      bool
 	UseEXIF     bool
 	UseGPS      bool
 	GPSRadius   float64 // Rayon en mètres pour le clustering GPS
@@ -34,8 +42,9 @@ type Config struct {
 	LogLevel  string // Log level: debug, info, warn, error
 	LogFormat string // Log format: text, json
 
-	// Error handling (v2.8.0+)
-	ContinueOnError bool // Continue processing even if errors occur (collect all errors instead of stopping)
+	// Error handling & execution mode (v2.8.0+)
+	ContinueOnError bool          // Continue processing even if errors occur (collect all errors instead of stopping)
+	Mode            ExecutionMode // Execution mode: validate (fast check), dryrun (simulate), run (execute - default)
 }
 
 // Validate checks if the configuration is valid
@@ -75,11 +84,11 @@ func DefaultConfig(basePath string) *Config {
 		Delta:             30 * time.Minute,
 		NoMoveMovie:       false,
 		NoMoveRaw:         false,
-		DryRun:            false,
 		UseEXIF:           true,
 		UseGPS:            false,                  // GPS clustering désactivé par défaut (opt-in)
 		GPSRadius:         defaultGPSRadiusMeters, // 2000m = 2km
 		SeparateOrphanRaw: true,                   // Activé par défaut (v2.6.0+)
 		ContinueOnError:   false,                  // Stop au premier échec par défaut (v2.8.0+)
+		Mode:              ModeRun,                // Execution réelle par défaut (v2.8.0+)
 	}
 }

@@ -33,7 +33,8 @@ VERSION := $(shell \
 )
 
 # Build flags
-LDFLAGS := -s -w -X main.version=$(VERSION)
+BUILD_TIME := $(shell date -u '+%Y-%m-%d %H:%M:%S %Z')
+LDFLAGS := -s -w -X main.version=$(VERSION) -X 'main.buildTime=$(BUILD_TIME)'
 
 # Coverage
 COVERAGE_FILE=coverage.out
@@ -52,9 +53,11 @@ help:
 	@echo
 	@echo "----- BUILD ----------------------------------------------------------------------"
 	@echo "all                  clean, build and test the project"
-	@echo "clean                clean the project (bin/, coverage files, temp files)"
+	@echo "clean                clean the project (keeps build cache for faster rebuilds)"
+	@echo "clean-all            clean everything including build cache (slower next build)"
 	@echo "build                build the binary to ./bin/picsplit"
 	@echo "install              install the binary to GOPATH/bin"
+	@echo "uninstall            remove the binary from GOPATH/bin"
 	@echo "version              display version information from Git"
 	@echo "----- TESTS && COVERAGE ----------------------------------------------------------"
 	@echo "test                 run tests"
@@ -76,7 +79,6 @@ help:
 clean:
 	@echo "Cleaning..."
 	@go clean
-	@go clean -cache
 	@go clean -testcache
 	@rm -f $(COVERAGE_FILE) $(COVERAGE_HTML)
 	@rm -Rf .tmp
@@ -86,7 +88,11 @@ clean:
 	@rm -f screenshot*.png screenshot*.jpg screenshot*.webp
 	@rm -Rf $(BIN_DIR)
 	@rm -Rf dist/
-	@rm -f $(INSTALL_PATH)
+
+.PHONY: clean-all
+clean-all: clean
+	@echo "Cleaning build cache (will slow down next build)..."
+	@go clean -cache
 
 .PHONY: build
 build: format
@@ -106,6 +112,12 @@ install: build
 	@mkdir -p $(GO)/bin
 	@cp $(BINARY_PATH) $(INSTALL_PATH)
 	@echo "Installed: $(INSTALL_PATH)"
+
+.PHONY: uninstall
+uninstall:
+	@echo "Uninstalling picsplit from $(INSTALL_PATH)..."
+	@rm -f $(INSTALL_PATH)
+	@echo "Uninstalled: $(INSTALL_PATH)"
 
 .PHONY: format
 format:

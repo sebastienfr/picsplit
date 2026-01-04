@@ -365,6 +365,218 @@ func TestValidateMergeFolders_FolderWithNonMediaFile(t *testing.T) {
 }
 
 // ========================================
+// Tests for validateMerge
+// ========================================
+
+func TestValidateMerge_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create source folders with media files
+	source1 := filepath.Join(tmpDir, "source1")
+	source2 := filepath.Join(tmpDir, "source2")
+
+	createTestFileInDir(t, source1, "photo1.jpg", "content1")
+	createTestFileInDir(t, source1, "photo2.jpg", "content2")
+	createTestFileInDir(t, source2, "video1.mp4", "video content")
+
+	target := filepath.Join(tmpDir, "target")
+
+	cfg := &MergeConfig{
+		SourceFolders: []string{source1, source2},
+		TargetFolder:  target,
+	}
+
+	err := validateMerge(cfg)
+	if err != nil {
+		t.Errorf("validateMerge() should succeed, got error: %v", err)
+	}
+}
+
+func TestValidateMerge_TargetExists(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create source folder
+	source := filepath.Join(tmpDir, "source")
+	createTestFileInDir(t, source, "photo.jpg", "content")
+
+	// Create existing target with files
+	target := filepath.Join(tmpDir, "target")
+	createTestFileInDir(t, target, "existing.jpg", "existing content")
+
+	cfg := &MergeConfig{
+		SourceFolders: []string{source},
+		TargetFolder:  target,
+	}
+
+	// Should succeed but with warnings
+	err := validateMerge(cfg)
+	if err != nil {
+		t.Errorf("validateMerge() should succeed with existing target, got error: %v", err)
+	}
+}
+
+func TestValidateMerge_Conflicts(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create source folders with conflicting files
+	source1 := filepath.Join(tmpDir, "source1")
+	source2 := filepath.Join(tmpDir, "source2")
+
+	// Same filename in both sources
+	createTestFileInDir(t, source1, "photo.jpg", "content1")
+	createTestFileInDir(t, source2, "photo.jpg", "content2")
+
+	target := filepath.Join(tmpDir, "target")
+
+	cfg := &MergeConfig{
+		SourceFolders: []string{source1, source2},
+		TargetFolder:  target,
+	}
+
+	// Should succeed but detect conflicts
+	err := validateMerge(cfg)
+	if err != nil {
+		t.Errorf("validateMerge() should succeed with conflicts, got error: %v", err)
+	}
+}
+
+func TestValidateMerge_InvalidSource(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create source with non-media file
+	source := filepath.Join(tmpDir, "source")
+	createTestFileInDir(t, source, "document.txt", "not a media file")
+
+	target := filepath.Join(tmpDir, "target")
+
+	cfg := &MergeConfig{
+		SourceFolders: []string{source},
+		TargetFolder:  target,
+	}
+
+	err := validateMerge(cfg)
+	if err == nil {
+		t.Error("validateMerge() should fail with non-media files in source")
+	}
+}
+
+func TestValidateMerge_NonExistentSource(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	target := filepath.Join(tmpDir, "target")
+
+	cfg := &MergeConfig{
+		SourceFolders: []string{"/non/existent/path"},
+		TargetFolder:  target,
+	}
+
+	err := validateMerge(cfg)
+	if err == nil {
+		t.Error("validateMerge() should fail with non-existent source")
+	}
+}
+
+func TestValidateMerge_EmptySource(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create empty source
+	source := filepath.Join(tmpDir, "source")
+	if err := os.MkdirAll(source, 0755); err != nil {
+		t.Fatalf("failed to create source dir: %v", err)
+	}
+
+	target := filepath.Join(tmpDir, "target")
+
+	cfg := &MergeConfig{
+		SourceFolders: []string{source},
+		TargetFolder:  target,
+	}
+
+	// Should succeed with empty source
+	err := validateMerge(cfg)
+	if err != nil {
+		t.Errorf("validateMerge() should succeed with empty source, got error: %v", err)
+	}
+}
+
+func TestValidateMerge_TargetScanError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create source
+	source := filepath.Join(tmpDir, "source")
+	createTestFileInDir(t, source, "photo.jpg", "content")
+
+	// Create target with restricted permissions
+	target := filepath.Join(tmpDir, "target")
+	if err := os.MkdirAll(target, 0755); err != nil {
+		t.Fatalf("failed to create target: %v", err)
+	}
+
+	// Create a subdirectory with no read permissions
+	restrictedDir := filepath.Join(target, "restricted")
+	if err := os.MkdirAll(restrictedDir, 0755); err != nil {
+		t.Fatalf("failed to create restricted dir: %v", err)
+	}
+	if err := os.Chmod(restrictedDir, 0000); err != nil {
+		t.Fatalf("failed to change permissions: %v", err)
+	}
+	defer os.Chmod(restrictedDir, 0755) // Restore for cleanup
+
+	cfg := &MergeConfig{
+		SourceFolders: []string{source},
+		TargetFolder:  target,
+	}
+
+	// Should report error about scanning target
+	err := validateMerge(cfg)
+	if err == nil {
+		t.Error("validateMerge() should fail when target cannot be scanned")
+	}
+}
+
+func TestValidateMerge_CustomExtensions(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create source with custom extension
+	source := filepath.Join(tmpDir, "source")
+	createTestFileInDir(t, source, "custom.xyz", "custom content")
+
+	target := filepath.Join(tmpDir, "target")
+
+	cfg := &MergeConfig{
+		SourceFolders:   []string{source},
+		TargetFolder:    target,
+		CustomPhotoExts: []string{"xyz"},
+	}
+
+	// Should succeed with custom extension
+	err := validateMerge(cfg)
+	if err != nil {
+		t.Errorf("validateMerge() should succeed with custom extension, got error: %v", err)
+	}
+}
+
+func TestMergeValidationReport_Print(t *testing.T) {
+	// Test that Print doesn't panic
+	report := &MergeValidationReport{
+		SourceFolders: []string{"/source1", "/source2"},
+		TargetFolder:  "/target",
+		TotalFiles:    100,
+		TotalBytes:    1024 * 1024 * 500, // 500 MB
+		SourceBreakdown: map[string]int{
+			"/source1": 60,
+			"/source2": 40,
+		},
+		Conflicts: 5,
+		Errors:    []error{fmt.Errorf("test error")},
+		Warnings:  []string{"test warning"},
+	}
+
+	// Should not panic
+	report.Print()
+}
+
+// ========================================
 // Tests for Basic Merge Operations
 // ========================================
 
@@ -385,7 +597,7 @@ func TestMerge_BasicTwoFolders(t *testing.T) {
 		SourceFolders: []string{source1, source2},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -427,7 +639,7 @@ func TestMerge_MultipleFolders(t *testing.T) {
 		SourceFolders: sources,
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -459,7 +671,7 @@ func TestMerge_EmptySourceFolder(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -488,7 +700,7 @@ func TestMerge_TargetFolderExists(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -525,7 +737,7 @@ func TestMerge_PreserveMovRawStructure(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -566,7 +778,7 @@ func TestMerge_NoConflict(t *testing.T) {
 		SourceFolders: []string{source1, source2},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -597,7 +809,7 @@ func TestMerge_ConflictWithForceFlag(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         true, // Force overwrite
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -632,7 +844,7 @@ func TestMerge_DryRunMode(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        true, // Dry run mode
+		Mode:          ModeDryRun, // Dry run mode
 	}
 
 	err := Merge(cfg)
@@ -666,7 +878,7 @@ func TestMerge_DryRunWithConflicts(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        true,
+		Mode:          ModeDryRun,
 	}
 
 	err := Merge(cfg)
@@ -706,7 +918,7 @@ func TestMerge_ErrorTargetNotDirectory(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -748,7 +960,7 @@ func TestMerge_ErrorMovingFile(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -762,7 +974,7 @@ func TestMerge_ValidationError(t *testing.T) {
 		SourceFolders: []string{}, // No sources
 		TargetFolder:  "/tmp/target",
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -792,7 +1004,7 @@ func TestMerge_MultipleConflictsWithForce(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         true, // Force overwrite all
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)
@@ -831,7 +1043,7 @@ func TestMerge_NestedStructurePreservation(t *testing.T) {
 		SourceFolders: []string{source},
 		TargetFolder:  target,
 		Force:         false,
-		DryRun:        false,
+		Mode:          ModeRun,
 	}
 
 	err := Merge(cfg)

@@ -7,10 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Fast validation mode** ([#13](https://github.com/sebastienfr/picsplit/issues/13)): New `--mode validate` for ultra-fast pre-checks (5s vs 2min)
+  - Validates file extensions, permissions, and disk space without EXIF extraction
+  - Returns detailed `ValidationReport` with file counts, critical errors, and warnings
+  - New file: `handler/validator.go` with `Validate()` function
+  - Works for both `split` and `merge` commands
+- **Execution modes system**: `--mode validate|dryrun|run` for split and merge operations
+  - `validate`: Fast validation without EXIF extraction (~5s for 1000+ files)
+  - `dryrun`: Full simulation with EXIF extraction but no file moves
+  - `run`: Real execution (default)
+- **Merge validation**: New `validateMerge()` function for merge pre-checks
+  - Detects conflicts between source folders
+  - Estimates disk space requirements
+  - Reports `MergeValidationReport` with detailed statistics
+- **Makefile improvements**:
+  - New `clean-all` target: Deep clean including build cache (for debugging)
+  - Modified `clean`: Faster clean (keeps build cache, 4x faster rebuilds: 1.3s vs 5.7s)
+  - New `uninstall` target: Remove installed binary from GOPATH/bin
+- **Build versioning**: Enhanced version display with build time + commit time
+  - Shows actual build timestamp (not just commit time)
+  - Format: `2.6.0-dev, built on 2026-01-04 18:41:54 +0000 UTC, git hash 8195207-dirty (commit: 2026-01-01 22:47:04)`
+
+### Changed
+- **BREAKING**: Removed `--dryrun` flag → use `--mode dryrun` instead
+- **Test coverage**: Increased from 63.5% to 83.7% (+20.2 points)
+  - New file: `handler/validator_test.go` (15 test scenarios)
+  - Enhanced `handler/merger_test.go` (+9 tests for `validateMerge()`)
+  - Enhanced `handler/splitter_test.go` (+15 tests for modes and orphan RAW)
+  - Total: ~40 new tests added
+
+### Fixed
+- **Bug**: `isOrganizedFolder()` incorrectly checked `len(name) == 19` instead of `18`
+  - Impact: Date-formatted subfolders were never detected as organized
+  - Files affected: `handler/splitter.go:87`
+- **Bug**: `Split()` missing mode handling - validate mode executed full split anyway
+  - Impact: `--mode validate` moved files instead of just validating
+  - Solution: Added `switch cfg.Mode` and extracted `splitInternal()`
+  - Files affected: `handler/splitter.go:404`
+- **Bug**: `refreshOrphanRAW()` incorrect statistics when processing from within date folder
+  - Symptoms: `total=0`, `success_rate=0.0%`, `skipped=-XX` (negative)
+  - Impact: Misleading summary in orphan RAW refresh mode
+  - Solution: Fix stats initialization in both code paths
+  - Files affected: `handler/splitter.go:286-291, 326-330`
+
+### Documentation
+- Updated README: Corrected all `merge` command examples (flags before arguments)
+- Updated README: Added execution modes documentation with examples
+- New CHANGELOG entry documenting all issue #13 changes
+
 ### Planned
 - Interactive console GUI (TUI)
 - Duplicate detection and handling
 - Photo similarity clustering
+- Empty directory cleanup (`--cleanup-empty-dirs`)
 
 ---
 

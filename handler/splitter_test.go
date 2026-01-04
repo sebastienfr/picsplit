@@ -676,7 +676,7 @@ func TestSplit_Integration(t *testing.T) {
 			Delta:       1 * time.Hour,
 			NoMoveMovie: false,
 			NoMoveRaw:   false,
-			DryRun:      false,
+			Mode:        ModeRun,
 		}
 
 		err := Split(cfg)
@@ -723,7 +723,7 @@ func TestSplit_Integration(t *testing.T) {
 			Delta:       1 * time.Hour,
 			NoMoveMovie: false,
 			NoMoveRaw:   false,
-			DryRun:      true,
+			Mode:        ModeDryRun,
 		}
 
 		err := Split(cfg)
@@ -757,7 +757,7 @@ func TestSplit_Integration(t *testing.T) {
 			Delta:       1 * time.Hour,
 			NoMoveMovie: false,
 			NoMoveRaw:   false,
-			DryRun:      false,
+			Mode:        ModeRun,
 		}
 
 		err := Split(cfg)
@@ -793,7 +793,7 @@ func TestSplit_Integration(t *testing.T) {
 			Delta:       1 * time.Hour,
 			NoMoveMovie: true,
 			NoMoveRaw:   true,
-			DryRun:      false,
+			Mode:        ModeRun,
 		}
 
 		err := Split(cfg)
@@ -839,7 +839,7 @@ func TestSplit_Integration(t *testing.T) {
 			Delta:       1 * time.Hour,
 			NoMoveMovie: false,
 			NoMoveRaw:   false,
-			DryRun:      false,
+			Mode:        ModeRun,
 		}
 
 		err := Split(cfg)
@@ -931,7 +931,7 @@ func TestSplit_Integration(t *testing.T) {
 			Delta:       1 * time.Hour,
 			NoMoveMovie: false,
 			NoMoveRaw:   false,
-			DryRun:      false,
+			Mode:        ModeRun,
 		}
 
 		err := Split(cfg)
@@ -975,7 +975,7 @@ func TestConfig_Validate(t *testing.T) {
 			Delta:       1 * time.Hour,
 			NoMoveMovie: false,
 			NoMoveRaw:   false,
-			DryRun:      false,
+			Mode:        ModeRun,
 		}
 
 		err := cfg.Validate()
@@ -1049,6 +1049,95 @@ func TestConfig_Validate(t *testing.T) {
 	})
 }
 
+func TestIsOrganizedFolder(t *testing.T) {
+	t.Run("date-formatted folder name", func(t *testing.T) {
+		// Create temp directory with date format name (format: "2006 - 0102 - 1504")
+		tempParent := t.TempDir()
+		dateFolder := filepath.Join(tempParent, "2024 - 0115 - 1430")
+		if err := os.MkdirAll(dateFolder, 0755); err != nil {
+			t.Fatalf("failed to create test folder: %v", err)
+		}
+
+		if !isOrganizedFolder(dateFolder) {
+			t.Error("should detect date-formatted folder name")
+		}
+	})
+
+	t.Run("folder with date-formatted subdirectories", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		// Create date-formatted subdirectories (>50% of total)
+		// Format: "2006 - 0102 - 1504"
+		dir1 := filepath.Join(tempDir, "2024 - 0115 - 1430")
+		dir2 := filepath.Join(tempDir, "2024 - 0116 - 1000")
+		dir3 := filepath.Join(tempDir, "random_folder")
+
+		if err := os.MkdirAll(dir1, 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+		if err := os.MkdirAll(dir2, 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+		if err := os.MkdirAll(dir3, 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+
+		result := isOrganizedFolder(tempDir)
+		if !result {
+			// Debug: list directory contents
+			entries, _ := os.ReadDir(tempDir)
+			t.Logf("Directory contents:")
+			for _, e := range entries {
+				t.Logf("  - %s (isDir: %v)", e.Name(), e.IsDir())
+			}
+			t.Error("should detect organized folder by subdirectories (2/3 are date-formatted)")
+		}
+	})
+
+	t.Run("not organized - regular folder", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		// Create non-date subdirectories
+		if err := os.MkdirAll(filepath.Join(tempDir, "photos"), 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(tempDir, "videos"), 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+
+		if isOrganizedFolder(tempDir) {
+			t.Error("should not detect regular folder as organized")
+		}
+	})
+
+	t.Run("not organized - less than 50% date folders", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		// Create 1 date folder and 2 regular folders
+		if err := os.MkdirAll(filepath.Join(tempDir, "2024 - 0115 - 1430"), 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(tempDir, "photos"), 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+		if err := os.MkdirAll(filepath.Join(tempDir, "videos"), 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+
+		if isOrganizedFolder(tempDir) {
+			t.Error("should not detect folder with <50% date subdirs as organized")
+		}
+	})
+
+	t.Run("empty folder", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		if isOrganizedFolder(tempDir) {
+			t.Error("empty folder should not be considered organized")
+		}
+	})
+}
+
 func TestDefaultConfig(t *testing.T) {
 	basePath := "/test/path"
 	cfg := DefaultConfig(basePath)
@@ -1069,8 +1158,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Error("expected NoMoveRaw to be false")
 	}
 
-	if cfg.DryRun {
-		t.Error("expected DryRun to be false")
+	if cfg.Mode != ModeRun {
+		t.Errorf("expected Mode to be ModeRun, got %v", cfg.Mode)
 	}
 
 	if !cfg.UseEXIF {
@@ -1081,6 +1170,374 @@ func TestDefaultConfig(t *testing.T) {
 // ========================================
 // Tests for Split() edge cases
 // ========================================
+
+func TestSplit_ValidateMode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test media files
+	testFiles := map[string]string{
+		"photo1.jpg": "photo content",
+		"photo2.JPG": "photo content",
+		"video1.mp4": "video content",
+	}
+
+	for name, content := range testFiles {
+		if err := os.WriteFile(filepath.Join(tmpDir, name), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := &Config{
+		BasePath: tmpDir,
+		Delta:    30 * time.Minute,
+		Mode:     ModeValidate,
+		UseEXIF:  true,
+		UseGPS:   false,
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() in validate mode failed: %v", err)
+	}
+
+	// Files should still be in original location (validate doesn't move)
+	for name := range testFiles {
+		if _, err := os.Stat(filepath.Join(tmpDir, name)); os.IsNotExist(err) {
+			t.Errorf("file %s should not be moved in validate mode", name)
+		}
+	}
+}
+
+func TestSplit_DryRunMode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test file
+	testFile := filepath.Join(tmpDir, "photo.jpg")
+	if err := os.WriteFile(testFile, []byte("photo"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		BasePath: tmpDir,
+		Delta:    30 * time.Minute,
+		Mode:     ModeDryRun,
+		UseEXIF:  false, // Use modtime for predictable results
+		UseGPS:   false,
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() in dry-run mode failed: %v", err)
+	}
+
+	// File should still be in original location (dry-run doesn't move)
+	if _, err := os.Stat(testFile); os.IsNotExist(err) {
+		t.Error("file should not be moved in dry-run mode")
+	}
+}
+
+func TestProcessOrganizedFolder(t *testing.T) {
+	t.Run("orphan RAW without paired JPEG", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create organized folder structure: "2024 - 0115 - 1430/raw/photo.nef"
+		dateFolder := filepath.Join(tmpDir, "2024 - 0115 - 1430")
+		rawFolder := filepath.Join(dateFolder, "raw")
+		if err := os.MkdirAll(rawFolder, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create orphan RAW file (no matching JPEG)
+		orphanRaw := filepath.Join(rawFolder, "orphan.nef")
+		if err := os.WriteFile(orphanRaw, []byte("raw data"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			SeparateOrphanRaw: true,
+			Mode:              ModeRun,
+		}
+
+		ctx, _ := newExecutionContext(cfg)
+		stats := &ProcessingStats{StartTime: time.Now()}
+
+		err := processOrganizedFolder(cfg, ctx, stats, dateFolder, "2024 - 0115 - 1430")
+		if err != nil {
+			t.Fatalf("processOrganizedFolder failed: %v", err)
+		}
+
+		// Check that orphan RAW was moved to orphan/ folder
+		orphanPath := filepath.Join(dateFolder, "orphan", "orphan.nef")
+		if _, err := os.Stat(orphanPath); os.IsNotExist(err) {
+			t.Error("orphan RAW should be moved to orphan/ folder")
+		}
+
+		// Check stats
+		if stats.OrphanRaw != 1 {
+			t.Errorf("expected 1 orphan RAW, got %d", stats.OrphanRaw)
+		}
+	})
+
+	t.Run("paired RAW with JPEG", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		dateFolder := filepath.Join(tmpDir, "2024 - 0115 - 1430")
+		rawFolder := filepath.Join(dateFolder, "raw")
+		if err := os.MkdirAll(rawFolder, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create paired RAW and JPEG
+		rawFile := filepath.Join(rawFolder, "photo.nef")
+		jpegFile := filepath.Join(dateFolder, "photo.jpg")
+
+		if err := os.WriteFile(rawFile, []byte("raw"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(jpegFile, []byte("jpeg"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			SeparateOrphanRaw: true,
+			Mode:              ModeRun,
+		}
+
+		ctx, _ := newExecutionContext(cfg)
+		stats := &ProcessingStats{StartTime: time.Now()}
+
+		err := processOrganizedFolder(cfg, ctx, stats, dateFolder, "2024 - 0115 - 1430")
+		if err != nil {
+			t.Fatalf("processOrganizedFolder failed: %v", err)
+		}
+
+		// Paired RAW should stay in raw/ folder
+		if _, err := os.Stat(rawFile); os.IsNotExist(err) {
+			t.Error("paired RAW should remain in raw/ folder")
+		}
+
+		// Should not create orphan folder
+		orphanFolder := filepath.Join(dateFolder, "orphan")
+		if _, err := os.Stat(orphanFolder); !os.IsNotExist(err) {
+			t.Error("orphan/ folder should not be created for paired RAW")
+		}
+
+		// Check stats
+		if stats.PairedRaw != 1 {
+			t.Errorf("expected 1 paired RAW, got %d", stats.PairedRaw)
+		}
+	})
+
+	t.Run("no raw folder", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		dateFolder := filepath.Join(tmpDir, "2024 - 0115 - 1430")
+		if err := os.MkdirAll(dateFolder, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			SeparateOrphanRaw: true,
+			Mode:              ModeRun,
+		}
+
+		ctx, _ := newExecutionContext(cfg)
+		stats := &ProcessingStats{StartTime: time.Now()}
+
+		err := processOrganizedFolder(cfg, ctx, stats, dateFolder, "2024 - 0115 - 1430")
+		if err != nil {
+			t.Fatalf("processOrganizedFolder should handle missing raw/ folder: %v", err)
+		}
+
+		// Stats should be zero
+		if stats.RawCount != 0 {
+			t.Errorf("expected 0 RAW files, got %d", stats.RawCount)
+		}
+	})
+
+	t.Run("dry run mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		dateFolder := filepath.Join(tmpDir, "2024 - 0115 - 1430")
+		rawFolder := filepath.Join(dateFolder, "raw")
+		if err := os.MkdirAll(rawFolder, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		orphanRaw := filepath.Join(rawFolder, "orphan.cr2")
+		if err := os.WriteFile(orphanRaw, []byte("raw"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			SeparateOrphanRaw: true,
+			Mode:              ModeDryRun,
+		}
+
+		ctx, _ := newExecutionContext(cfg)
+		stats := &ProcessingStats{StartTime: time.Now()}
+
+		err := processOrganizedFolder(cfg, ctx, stats, dateFolder, "2024 - 0115 - 1430")
+		if err != nil {
+			t.Fatalf("processOrganizedFolder failed: %v", err)
+		}
+
+		// In dry-run, file should not be moved
+		if _, err := os.Stat(orphanRaw); os.IsNotExist(err) {
+			t.Error("dry-run should not move files")
+		}
+
+		// But stats should be counted
+		if stats.OrphanRaw != 1 {
+			t.Errorf("dry-run should count orphan RAW, got %d", stats.OrphanRaw)
+		}
+	})
+}
+
+func TestRefreshOrphanRAW(t *testing.T) {
+	t.Run("process date-formatted subfolders", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create multiple date-formatted folders with RAW files
+		dateFolder1 := filepath.Join(tmpDir, "2024 - 0115 - 1430")
+		dateFolder2 := filepath.Join(tmpDir, "2024 - 0116 - 1000")
+
+		for _, df := range []string{dateFolder1, dateFolder2} {
+			rawFolder := filepath.Join(df, "raw")
+			if err := os.MkdirAll(rawFolder, 0755); err != nil {
+				t.Fatal(err)
+			}
+
+			// Add orphan RAW
+			orphanRaw := filepath.Join(rawFolder, "orphan.nef")
+			if err := os.WriteFile(orphanRaw, []byte("raw"), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			SeparateOrphanRaw: true,
+			Mode:              ModeRun,
+		}
+
+		ctx, _ := newExecutionContext(cfg)
+
+		err := refreshOrphanRAW(cfg, ctx)
+		if err != nil {
+			t.Fatalf("refreshOrphanRAW failed: %v", err)
+		}
+
+		// Both folders should have orphan/ with moved files
+		for _, df := range []string{dateFolder1, dateFolder2} {
+			orphanPath := filepath.Join(df, "orphan", "orphan.nef")
+			if _, err := os.Stat(orphanPath); os.IsNotExist(err) {
+				t.Errorf("orphan RAW should be moved in %s", df)
+			}
+		}
+	})
+
+	t.Run("process current date-formatted folder", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create a date-formatted folder as basePath
+		dateFolder := filepath.Join(tmpDir, "2024 - 0115 - 1430")
+		rawFolder := filepath.Join(dateFolder, "raw")
+		if err := os.MkdirAll(rawFolder, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		orphanRaw := filepath.Join(rawFolder, "orphan.dng")
+		if err := os.WriteFile(orphanRaw, []byte("raw"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Set basePath to the date-formatted folder itself
+		cfg := &Config{
+			BasePath:          dateFolder,
+			SeparateOrphanRaw: true,
+			Mode:              ModeRun,
+		}
+
+		ctx, _ := newExecutionContext(cfg)
+
+		err := refreshOrphanRAW(cfg, ctx)
+		if err != nil {
+			t.Fatalf("refreshOrphanRAW failed: %v", err)
+		}
+
+		// Orphan should be moved
+		orphanPath := filepath.Join(dateFolder, "orphan", "orphan.dng")
+		if _, err := os.Stat(orphanPath); os.IsNotExist(err) {
+			t.Error("orphan RAW should be moved when processing current folder")
+		}
+	})
+
+	t.Run("skip non-date folders", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create a non-date folder
+		regularFolder := filepath.Join(tmpDir, "photos")
+		rawFolder := filepath.Join(regularFolder, "raw")
+		if err := os.MkdirAll(rawFolder, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		rawFile := filepath.Join(rawFolder, "file.nef")
+		if err := os.WriteFile(rawFile, []byte("raw"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			SeparateOrphanRaw: true,
+			Mode:              ModeRun,
+		}
+
+		ctx, _ := newExecutionContext(cfg)
+
+		err := refreshOrphanRAW(cfg, ctx)
+		if err != nil {
+			t.Fatalf("refreshOrphanRAW failed: %v", err)
+		}
+
+		// Non-date folder should be skipped
+		orphanFolder := filepath.Join(regularFolder, "orphan")
+		if _, err := os.Stat(orphanFolder); !os.IsNotExist(err) {
+			t.Error("non-date folders should be skipped")
+		}
+	})
+
+	t.Run("skip special folders", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create special folders that should be skipped
+		for _, special := range []string{"mov", "raw", "orphan"} {
+			specialFolder := filepath.Join(tmpDir, special)
+			if err := os.MkdirAll(specialFolder, 0755); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		cfg := &Config{
+			BasePath:          tmpDir,
+			SeparateOrphanRaw: true,
+			Mode:              ModeRun,
+		}
+
+		ctx, _ := newExecutionContext(cfg)
+
+		// Should not error on special folders
+		err := refreshOrphanRAW(cfg, ctx)
+		if err != nil {
+			t.Fatalf("refreshOrphanRAW should skip special folders: %v", err)
+		}
+	})
+}
 
 func TestSplit_NoMediaFiles(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -1098,7 +1555,7 @@ func TestSplit_NoMediaFiles(t *testing.T) {
 		Delta:       30 * time.Minute,
 		NoMoveMovie: false,
 		NoMoveRaw:   false,
-		DryRun:      false,
+		Mode:        ModeRun,
 		UseEXIF:     true,
 		UseGPS:      false,
 	}
@@ -1124,7 +1581,7 @@ func TestSplit_GPSMode_AllFilesWithGPS(t *testing.T) {
 		Delta:       30 * time.Minute,
 		NoMoveMovie: false,
 		NoMoveRaw:   false,
-		DryRun:      false,
+		Mode:        ModeRun,
 		UseEXIF:     false, // Use ModTime for simplicity
 		UseGPS:      true,
 		GPSRadius:   2000.0, // 2km
@@ -1216,7 +1673,7 @@ func TestProcessGroup_DryRunMode(t *testing.T) {
 		Delta:       30 * time.Minute,
 		NoMoveMovie: false,
 		NoMoveRaw:   false,
-		DryRun:      true, // Dry run mode
+		Mode:        ModeDryRun, // Dry run mode
 		UseEXIF:     false,
 	}
 
@@ -1248,7 +1705,7 @@ func TestSplit_MixedMediaTypes(t *testing.T) {
 		Delta:       30 * time.Minute,
 		NoMoveMovie: false, // Movies should go to mov/
 		NoMoveRaw:   false, // RAW should go to raw/
-		DryRun:      false,
+		Mode:        ModeRun,
 		UseEXIF:     false, // Use ModTime
 	}
 
@@ -1303,7 +1760,7 @@ func TestSplit_NoMoveMovieAndRaw(t *testing.T) {
 		Delta:       30 * time.Minute,
 		NoMoveMovie: true, // Keep movies in root
 		NoMoveRaw:   true, // Keep RAW in root
-		DryRun:      false,
+		Mode:        ModeRun,
 		UseEXIF:     false,
 	}
 
@@ -1372,7 +1829,7 @@ func TestSplit_MultipleGroups(t *testing.T) {
 		Delta:       30 * time.Minute,
 		NoMoveMovie: false,
 		NoMoveRaw:   false,
-		DryRun:      false,
+		Mode:        ModeRun,
 		UseEXIF:     false,
 	}
 
@@ -1522,7 +1979,7 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 			Delta:             1 * time.Hour,
 			NoMoveMovie:       false,
 			NoMoveRaw:         false,
-			DryRun:            false,
+			Mode:              ModeRun,
 			SeparateOrphanRaw: true, // Activé
 		}
 
@@ -1565,7 +2022,7 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 			Delta:             1 * time.Hour,
 			NoMoveMovie:       false,
 			NoMoveRaw:         false,
-			DryRun:            false,
+			Mode:              ModeRun,
 			SeparateOrphanRaw: false, // Désactivé
 		}
 
@@ -1610,7 +2067,7 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 			Delta:             1 * time.Hour,
 			NoMoveMovie:       false,
 			NoMoveRaw:         false,
-			DryRun:            false,
+			Mode:              ModeRun,
 			SeparateOrphanRaw: true,
 		}
 
@@ -1648,7 +2105,7 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 			Delta:             1 * time.Hour,
 			NoMoveMovie:       false,
 			NoMoveRaw:         false,
-			DryRun:            false,
+			Mode:              ModeRun,
 			SeparateOrphanRaw: true,
 		}
 
@@ -1691,7 +2148,7 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 			Delta:             1 * time.Hour,
 			NoMoveMovie:       false,
 			NoMoveRaw:         false,
-			DryRun:            true, // Dry run
+			Mode:              ModeDryRun, // Dry run
 			SeparateOrphanRaw: true,
 		}
 
@@ -1734,6 +2191,7 @@ func TestSplit_ContinueOnError(t *testing.T) {
 			Delta:           30 * time.Minute,
 			UseEXIF:         true,
 			ContinueOnError: false,
+			Mode:            ModeRun,
 		}
 
 		if cfg.ContinueOnError {
