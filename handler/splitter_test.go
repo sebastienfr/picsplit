@@ -2278,6 +2278,7 @@ func TestSplit_ContinueOnError(t *testing.T) {
 		}
 	})
 }
+
 // TestSplit_MoveDuplicates tests the move duplicates feature
 func TestSplit_MoveDuplicates(t *testing.T) {
 	t.Run("move duplicates to duplicates folder", func(t *testing.T) {
