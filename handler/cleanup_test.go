@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -268,7 +269,7 @@ func TestCleanupEmptyDirs_PartiallyEmptyTree(t *testing.T) {
 // TestCleanupEmptyDirs_PermissionError tests handling of permission errors
 func TestCleanupEmptyDirs_PermissionError(t *testing.T) {
 	// Skip on Windows (permission model is different)
-	if os.Getenv("GOOS") == "windows" {
+	if runtime.GOOS == "windows" {
 		t.Skip("Skipping permission test on Windows")
 	}
 
@@ -447,32 +448,32 @@ func TestIsProtectedDir(t *testing.T) {
 	}{
 		{
 			name:          ".git directory",
-			path:          "/home/user/project/.git",
+			path:          filepath.Join("home", "user", "project", ".git"),
 			wantProtected: true,
 		},
 		{
 			name:          ".svn directory",
-			path:          "/home/user/project/.svn",
+			path:          filepath.Join("home", "user", "project", ".svn"),
 			wantProtected: true,
 		},
 		{
 			name:          "node_modules directory",
-			path:          "/home/user/project/node_modules",
+			path:          filepath.Join("home", "user", "project", "node_modules"),
 			wantProtected: true,
 		},
 		{
 			name:          "nested .git",
-			path:          "/home/user/project/sub/.git",
+			path:          filepath.Join("home", "user", "project", "sub", ".git"),
 			wantProtected: true,
 		},
 		{
 			name:          "normal directory",
-			path:          "/home/user/project/photos",
+			path:          filepath.Join("home", "user", "project", "photos"),
 			wantProtected: false,
 		},
 		{
 			name:          "directory containing 'git' in name",
-			path:          "/home/user/github/project",
+			path:          filepath.Join("home", "user", "github", "project"),
 			wantProtected: false,
 		},
 	}
