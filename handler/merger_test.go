@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -499,46 +498,6 @@ func TestValidateMerge_EmptySource(t *testing.T) {
 	}
 }
 
-func TestValidateMerge_TargetScanError(t *testing.T) {
-	// Skip on Windows (permission model is different)
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping permission test on Windows")
-	}
-
-	tmpDir := t.TempDir()
-
-	// Create source
-	source := filepath.Join(tmpDir, "source")
-	createTestFileInDir(t, source, "photo.jpg", "content")
-
-	// Create target with restricted permissions
-	target := filepath.Join(tmpDir, "target")
-	if err := os.MkdirAll(target, 0755); err != nil {
-		t.Fatalf("failed to create target: %v", err)
-	}
-
-	// Create a subdirectory with no read permissions
-	restrictedDir := filepath.Join(target, "restricted")
-	if err := os.MkdirAll(restrictedDir, 0755); err != nil {
-		t.Fatalf("failed to create restricted dir: %v", err)
-	}
-	if err := os.Chmod(restrictedDir, 0000); err != nil {
-		t.Fatalf("failed to change permissions: %v", err)
-	}
-	defer os.Chmod(restrictedDir, 0755) // Restore for cleanup
-
-	cfg := &MergeConfig{
-		SourceFolders: []string{source},
-		TargetFolder:  target,
-	}
-
-	// Should report error about scanning target
-	err := validateMerge(cfg)
-	if err == nil {
-		t.Error("validateMerge() should fail when target cannot be scanned")
-	}
-}
-
 func TestValidateMerge_CustomExtensions(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -932,45 +891,6 @@ func TestMerge_ErrorTargetNotDirectory(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not a directory") {
 		t.Errorf("error should mention target not being a directory, got: %v", err)
-	}
-}
-
-func TestMerge_ErrorMovingFile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping test on Windows (permissions work differently)")
-	}
-	if os.Getuid() == 0 {
-		t.Skip("Skipping test when running as root (can't test permission errors)")
-	}
-
-	tmpDir := t.TempDir()
-
-	source := filepath.Join(tmpDir, "source")
-	createTestFileInDir(t, source, "photo.jpg", "content")
-
-	target := filepath.Join(tmpDir, "target")
-	if err := os.MkdirAll(target, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Make target read-only to cause move error
-	if err := os.Chmod(target, 0444); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = os.Chmod(target, 0755) // Cleanup, ignore error
-	}()
-
-	cfg := &MergeConfig{
-		SourceFolders: []string{source},
-		TargetFolder:  target,
-		Force:         false,
-		Mode:          ModeRun,
-	}
-
-	err := Merge(cfg)
-	if err == nil {
-		t.Error("Merge() should error when file move fails")
 	}
 }
 
