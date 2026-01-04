@@ -99,7 +99,7 @@ func TestIsValidDateTime(t *testing.T) {
 }
 
 func TestFindAssociatedJPEG(t *testing.T) {
-	// Créer un répertoire temporaire pour les tests
+	// Create temporary directory for tests
 	tempDir := t.TempDir()
 
 	tests := []struct {
@@ -154,14 +154,14 @@ func TestFindAssociatedJPEG(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Créer le fichier RAW
+			// Create RAW file
 			rawPath := filepath.Join(tempDir, tt.rawFile)
 			if err := os.WriteFile(rawPath, []byte("dummy"), 0600); err != nil {
 				t.Fatalf("failed to create RAW file: %v", err)
 			}
 			defer os.Remove(rawPath)
 
-			// Créer les fichiers JPEG
+			// Create JPEG files
 			for _, jpegFile := range tt.jpegFiles {
 				jpegPath := filepath.Join(tempDir, jpegFile)
 				if err := os.WriteFile(jpegPath, []byte("dummy"), 0600); err != nil {
@@ -170,7 +170,7 @@ func TestFindAssociatedJPEG(t *testing.T) {
 				defer os.Remove(jpegPath)
 			}
 
-			// Exécuter le test
+			// Execute the test
 			result, err := findAssociatedJPEG(rawPath)
 
 			if tt.shouldError {
@@ -182,12 +182,12 @@ func TestFindAssociatedJPEG(t *testing.T) {
 					t.Errorf("findAssociatedJPEG() unexpected error: %v", err)
 				}
 
-				// Vérifier que le fichier existe
+				// Verify that file exists
 				if _, err := os.Stat(result); err != nil {
 					t.Errorf("findAssociatedJPEG() returned non-existent file: %v", result)
 				}
 
-				// Vérifier que c'est bien un fichier JPEG
+				// Verify that it's a JPEG file
 				ext := filepath.Ext(result)
 				validExts := []string{".jpg", ".JPG", ".jpeg", ".JPEG"}
 				valid := false
@@ -201,7 +201,7 @@ func TestFindAssociatedJPEG(t *testing.T) {
 					t.Errorf("findAssociatedJPEG() returned file with invalid extension: %v", ext)
 				}
 
-				// Vérifier que le basename correspond
+				// Verify that basename matches
 				expectedBase := filepath.Base(tt.rawFile)
 				expectedBase = expectedBase[:len(expectedBase)-len(filepath.Ext(tt.rawFile))]
 				resultBase := filepath.Base(result)
@@ -215,11 +215,11 @@ func TestFindAssociatedJPEG(t *testing.T) {
 }
 
 func TestExtractMetadata_Fallback(t *testing.T) {
-	// Créer un fichier JPEG sans EXIF
+	// Create JPEG file without EXIF
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.jpg")
 
-	// Créer un fichier JPEG minimal sans EXIF
+	// Create minimal JPEG file without EXIF
 	// JPEG header: FF D8 FF E0 ... FF D9
 	jpegData := []byte{
 		0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46,
@@ -231,31 +231,31 @@ func TestExtractMetadata_Fallback(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	// Extraire les métadonnées
+	// Extract metadata
 	ctx := newDefaultExecutionContext()
 	metadata, err := ExtractMetadata(ctx, testFile)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
 
-	// Vérifier que la source est ModTime (fallback)
+	// Verify source is ModTime (fallback)
 	if metadata.Source != DateSourceModTime {
 		t.Errorf("ExtractMetadata() source = %v, want %v", metadata.Source, DateSourceModTime)
 	}
 
-	// Vérifier que FileInfo est présent
+	// Verify that FileInfo is present
 	if metadata.FileInfo == nil {
 		t.Error("ExtractMetadata() FileInfo is nil")
 	}
 
-	// Vérifier que DateTime correspond à ModTime
+	// Verify that DateTime matches ModTime
 	expectedTime := metadata.FileInfo.ModTime().Truncate(time.Second)
 	actualTime := metadata.DateTime.Truncate(time.Second)
 	if !expectedTime.Equal(actualTime) {
 		t.Errorf("ExtractMetadata() DateTime = %v, want %v", actualTime, expectedTime)
 	}
 
-	// Vérifier que GPS est nil (pas de données GPS)
+	// Verify that GPS is nil (no GPS data)
 	if metadata.GPS != nil {
 		t.Errorf("ExtractMetadata() GPS = %v, want nil", metadata.GPS)
 	}

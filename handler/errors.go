@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ErrorType représente la catégorie d'erreur
+// ErrorType represents the error category
 type ErrorType string
 
 const (
@@ -18,16 +18,16 @@ const (
 	ErrTypeGPS        ErrorType = "GPS"
 )
 
-// PicsplitError est l'erreur structurée de picsplit
+// PicsplitError is picsplit's structured error
 type PicsplitError struct {
-	Type    ErrorType         // Catégorie de l'erreur
-	Op      string            // Opération en cours ("move_file", "extract_exif")
-	Path    string            // Fichier/dossier concerné
-	Err     error             // Erreur originale
-	Details map[string]string // Contexte supplémentaire
+	Type    ErrorType         // Error category
+	Op      string            // Current operation ("move_file", "extract_exif")
+	Path    string            // Affected file/folder
+	Err     error             // Original error
+	Details map[string]string // Additional context
 }
 
-// Error implémente l'interface error
+// Error implements the error interface
 func (e *PicsplitError) Error() string {
 	if e.Err != nil {
 		return fmt.Sprintf("[%s] %s: %s - %v", e.Type, e.Op, e.Path, e.Err)
@@ -35,12 +35,12 @@ func (e *PicsplitError) Error() string {
 	return fmt.Sprintf("[%s] %s: %s", e.Type, e.Op, e.Path)
 }
 
-// Unwrap permet d'extraire l'erreur originale
+// Unwrap allows extracting the original error
 func (e *PicsplitError) Unwrap() error {
 	return e.Err
 }
 
-// Suggestion génère une action corrective selon le type d'erreur
+// Suggestion generates a corrective action based on error type
 func (e *PicsplitError) Suggestion() string {
 	switch e.Type {
 	case ErrTypePermission:
@@ -87,7 +87,7 @@ func (e *PicsplitError) Suggestion() string {
 	}
 }
 
-// IsCritical détermine si l'erreur est bloquante
+// IsCritical determines if the error is blocking
 func (e *PicsplitError) IsCritical() bool {
 	switch e.Type {
 	case ErrTypePermission, ErrTypeIO, ErrTypeValidation:

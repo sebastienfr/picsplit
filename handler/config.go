@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	defaultGPSRadiusMeters = 2000.0 // Rayon par défaut pour le clustering GPS : 2km
+	defaultGPSRadiusMeters = 2000.0 // Default radius for GPS clustering: 2km
 )
 
 // ExecutionMode defines the mode of execution
@@ -27,7 +27,7 @@ type Config struct {
 	NoMoveRaw   bool
 	UseEXIF     bool
 	UseGPS      bool
-	GPSRadius   float64 // Rayon en mètres pour le clustering GPS
+	GPSRadius   float64 // Radius in meters for GPS clustering
 
 	// Custom extensions (v2.5.0+)
 	// These are ADDITIVE to the default extensions
@@ -50,6 +50,7 @@ type Config struct {
 	Force            bool          // Skip confirmation prompts (cleanup, merge conflicts, etc.)
 	DetectDuplicates bool          // Detect duplicate files via SHA256 hash (v2.8.0+)
 	SkipDuplicates   bool          // Skip duplicate files automatically (requires DetectDuplicates) (v2.8.0+)
+	MoveDuplicates   bool          // Move duplicates to duplicates/ subfolder (requires DetectDuplicates, mutually exclusive with SkipDuplicates) (v2.8.0+)
 }
 
 // Validate checks if the configuration is valid
@@ -68,6 +69,14 @@ func (c *Config) Validate() error {
 
 	if c.SkipDuplicates && !c.DetectDuplicates {
 		return errors.New("--skip-duplicates requires --detect-duplicates")
+	}
+
+	if c.MoveDuplicates && !c.DetectDuplicates {
+		return errors.New("--move-duplicates requires --detect-duplicates")
+	}
+
+	if c.SkipDuplicates && c.MoveDuplicates {
+		return errors.New("--skip-duplicates and --move-duplicates are mutually exclusive")
 	}
 
 	// Check if path exists and is a directory
@@ -94,14 +103,14 @@ func DefaultConfig(basePath string) *Config {
 		NoMoveMovie:       false,
 		NoMoveRaw:         false,
 		UseEXIF:           true,
-		UseGPS:            false,                  // GPS clustering désactivé par défaut (opt-in)
+		UseGPS:            false,                  // GPS clustering disabled by default (opt-in)
 		GPSRadius:         defaultGPSRadiusMeters, // 2000m = 2km
-		SeparateOrphanRaw: true,                   // Activé par défaut (v2.6.0+)
-		ContinueOnError:   false,                  // Stop au premier échec par défaut (v2.8.0+)
-		Mode:              ModeRun,                // Execution réelle par défaut (v2.8.0+)
-		CleanupEmptyDirs:  false,                  // Désactivé par défaut (v2.8.0+)
-		Force:             false,                  // Demander confirmation par défaut (v2.8.0+)
-		DetectDuplicates:  false,                  // Détection désactivée par défaut (v2.8.0+)
-		SkipDuplicates:    false,                  // Skip désactivé par défaut (v2.8.0+)
+		SeparateOrphanRaw: true,                   // Enabled by default (v2.6.0+)
+		ContinueOnError:   false,                  // Stop at first failure by default (v2.8.0+)
+		Mode:              ModeRun,                // Real execution by default (v2.8.0+)
+		CleanupEmptyDirs:  false,                  // Disabled by default (v2.8.0+)
+		Force:             false,                  // Ask for confirmation by default (v2.8.0+)
+		DetectDuplicates:  false,                  // Detection disabled by default (v2.8.0+)
+		SkipDuplicates:    false,                  // Skip disabled by default (v2.8.0+)
 	}
 }

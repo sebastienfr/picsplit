@@ -6,36 +6,36 @@ import (
 )
 
 const (
-	earthRadiusMeters = 6371000.0 // Rayon moyen de la Terre en mètres
+	earthRadiusMeters = 6371000.0 // Mean Earth radius in meters
 )
 
-// CalculateDistance calcule la distance en mètres entre deux coordonnées GPS
-// en utilisant la formule de Haversine
+// CalculateDistance calculates the distance in meters between two GPS coordinates
+// using the Haversine formula
 func CalculateDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	// Conversion des degrés en radians
+	// Convert degrees to radians
 	lat1Rad := degreesToRadians(lat1)
 	lon1Rad := degreesToRadians(lon1)
 	lat2Rad := degreesToRadians(lat2)
 	lon2Rad := degreesToRadians(lon2)
 
-	// Différences
+	// Differences
 	deltaLat := lat2Rad - lat1Rad
 	deltaLon := lon2Rad - lon1Rad
 
-	// Formule de Haversine
+	// Haversine formula
 	a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) +
 		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
 			math.Sin(deltaLon/2)*math.Sin(deltaLon/2)
 
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 
-	// Distance en mètres
+	// Distance in meters
 	distance := earthRadiusMeters * c
 
 	return distance
 }
 
-// CalculateCentroid calcule le centroid (center géométrique) d'un ensemble de coordonnées GPS
+// CalculateCentroid calculates the centroid (geometric center) of a set of GPS coordinates
 func CalculateCentroid(coords []GPSCoord) GPSCoord {
 	if len(coords) == 0 {
 		return GPSCoord{Lat: 0, Lon: 0}
@@ -53,10 +53,10 @@ func CalculateCentroid(coords []GPSCoord) GPSCoord {
 	}
 }
 
-// FormatLocationName formate des coordonnées GPS en nom de dossier
-// Format: "48.8566N-2.3522E" ou "34.0522S-118.2437W"
+// FormatLocationName formats GPS coordinates as folder name
+// Format: "48.8566N-2.3522E" or "34.0522S-118.2437W"
 func FormatLocationName(coord GPSCoord) string {
-	// Déterminer les directions
+	// Determine directions
 	latDir := "N"
 	if coord.Lat < 0 {
 		latDir = "S"
@@ -71,11 +71,11 @@ func FormatLocationName(coord GPSCoord) string {
 	absLat := math.Abs(coord.Lat)
 	absLon := math.Abs(coord.Lon)
 
-	// Formater avec 4 décimales
+	// Format with 4 decimal places
 	return fmt.Sprintf("%.4f%s-%.4f%s", absLat, latDir, absLon, lonDir)
 }
 
-// degreesToRadians convertit des degrés en radians
+// degreesToRadians converts degrees to radians
 func degreesToRadians(degrees float64) float64 {
 	return degrees * math.Pi / 180.0
 }

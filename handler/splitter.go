@@ -13,13 +13,14 @@ import (
 
 const (
 	// Folder configuration
-	movFolderName     = "mov"
-	rawFolderName     = "raw"
-	orphanFolderName  = "orphan"
-	dateFormatPattern = "2006 - 0102 - 1504"
+	movFolderName        = "mov"
+	rawFolderName        = "raw"
+	orphanFolderName     = "orphan"
+	duplicatesFolderName = "duplicates"
+	dateFormatPattern    = "2006 - 0102 - 1504"
 )
 
-// fileGroup représente un groupe de fichiers détecté comme un événement
+// fileGroup represents a group of files detected as an event
 type fileGroup struct {
 	folderName string
 	firstFile  FileMetadata
@@ -99,7 +100,7 @@ func isOrganizedFolder(basePath string) bool {
 	return isOrganized
 }
 
-// collectMediaFilesWithMetadata récupère tous les fichiers médias avec leurs métadonnées EXIF/vidéo
+// collectMediaFilesWithMetadata retrieves all media files with their EXIF/video metadata
 func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMetadata, error) {
 	entries, err := os.ReadDir(cfg.BasePath)
 	if err != nil {
@@ -128,7 +129,7 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 
 		filePath := filepath.Join(cfg.BasePath, info.Name())
 
-		// Extraire métadonnées (EXIF/vidéo)
+		// Extract metadata (EXIF/video)
 		var metadata *FileMetadata
 		if cfg.UseEXIF {
 			metadata, err = ExtractMetadata(ctx, filePath)
@@ -137,7 +138,7 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 				exifFailCount++
 			}
 		} else {
-			// Mode sans EXIF : utiliser directement ModTime
+			// Mode without EXIF: use ModTime directly
 			metadata = &FileMetadata{
 				FileInfo: info,
 				DateTime: info.ModTime(),
@@ -151,7 +152,7 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 		}
 	}
 
-	// Mode strict : si au moins un fichier sans EXIF valide → fallback tous sur ModTime
+	// Strict mode: if at least one file without valid EXIF → fallback all to ModTime
 	if cfg.UseEXIF && exifFailCount > 0 {
 		slog.Warn("EXIF validation failed, using file modification times for all files",
 			"failed_count", exifFailCount,
@@ -167,10 +168,10 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 	return mediaFiles, nil
 }
 
-// sortFilesByDateTime trie les fichiers par date/heure croissante (EXIF ou ModTime)
+// sortFilesByDateTime sorts files by ascending date/time (EXIF or ModTime)
 func sortFilesByDateTime(files []FileMetadata) {
 	sort.Slice(files, func(i, j int) bool {
-		// Si les DateTime sont égaux, trier par nom (déterministe)
+		// If DateTime are equal, sort by name (deterministic)
 		if files[i].DateTime.Equal(files[j].DateTime) {
 			return files[i].FileInfo.Name() < files[j].FileInfo.Name()
 		}
@@ -178,8 +179,8 @@ func sortFilesByDateTime(files []FileMetadata) {
 	})
 }
 
-// groupFilesByGaps regroupe les fichiers par gaps temporels
-// Un nouveau groupe démarre quand gap > delta
+// groupFilesByGaps groups files by time gaps
+// A new group starts when gap > delta
 func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 	if len(files) == 0 {
 		return nil
@@ -196,10 +197,10 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 		gap := files[i].DateTime.Sub(files[i-1].DateTime)
 
 		if gap <= delta {
-			// Gap acceptable, continuer le groupe
+			// Acceptable gap, continue the group
 			currentGroup.files = append(currentGroup.files, files[i])
 		} else {
-			// Gap trop grand, finaliser groupe actuel
+			// Gap too large, finalize current group
 			slog.Debug("gap exceeds delta, creating new group",
 				"prev_file", files[i-1].FileInfo.Name(),
 				"prev_time", files[i-1].DateTime,
@@ -210,7 +211,7 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 			currentGroup.folderName = currentGroup.firstFile.DateTime.Format(dateFormatPattern)
 			groups = append(groups, currentGroup)
 
-			// Démarrer nouveau groupe
+			// Start new group
 			currentGroup = fileGroup{
 				files:     []FileMetadata{files[i]},
 				firstFile: files[i],
@@ -218,16 +219,16 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 		}
 	}
 
-	// Ajouter dernier groupe
+	// Add last group
 	currentGroup.folderName = currentGroup.firstFile.DateTime.Format(dateFormatPattern)
 	groups = append(groups, currentGroup)
 
 	return groups
 }
 
-// processGroup traite tous les fichiers d'un groupe
+// processGroup processes all files in a group
 func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *ProcessingStats, detector *DuplicateDetector) error {
-	// Créer dossier principal (si pas dry-run)
+	// Create main folder (unless dry-run)
 	if cfg.Mode != ModeDryRun {
 		groupDir := filepath.Join(cfg.BasePath, group.folderName)
 		if err := os.MkdirAll(groupDir, permDirectory); err != nil {
@@ -235,34 +236,63 @@ func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *Pr
 		}
 	}
 
-	// Traiter chaque fichier
+	// Process each file
 	for _, file := range group.files {
 		fileName := file.FileInfo.Name()
 		filePath := filepath.Join(cfg.BasePath, fileName)
 
-		// Vérifier si fichier est un doublon
+		// Check if file is a duplicate
 		if cfg.DetectDuplicates {
 			isDup, original, err := detector.Check(filePath, file.FileInfo.Size())
 			if err != nil {
 				slog.Warn("failed to check duplicate", "file", fileName, "error", err)
 				// Continue processing even if duplicate detection fails
 			} else if isDup {
-				// Doublon détecté
+				// Duplicate detected
 				stats.DuplicatesDetected[filePath] = original
 
 				if cfg.SkipDuplicates {
-					// Skip ce fichier
+					// Skip this file
 					slog.Info("skipping duplicate", "file", fileName, "original", filepath.Base(original))
 					stats.DuplicatesSkipped++
 					continue
+				} else if cfg.MoveDuplicates {
+					// Move to duplicates/ folder
+					duplicatesDir := filepath.Join(cfg.BasePath, duplicatesFolderName)
+					if cfg.Mode != ModeDryRun {
+						if err := os.MkdirAll(duplicatesDir, permDirectory); err != nil {
+							slog.Error("failed to create duplicates folder", "error", err)
+							if cfg.ContinueOnError {
+								stats.AddError(fmt.Errorf("failed to create duplicates folder: %w", err))
+								continue
+							}
+							return err
+						}
+					}
+
+					if err := moveFile(cfg.BasePath, fileName, duplicatesFolderName, cfg.Mode == ModeDryRun); err != nil {
+						slog.Error("failed to move duplicate", "file", fileName, "error", err)
+						if cfg.ContinueOnError {
+							stats.AddError(fmt.Errorf("failed to move duplicate %s: %w", fileName, err))
+							continue
+						}
+						return err
+					}
+					if cfg.Mode == ModeDryRun {
+						slog.Info("would move duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
+					} else {
+						slog.Info("moved duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
+					}
+					stats.DuplicatesSkipped++
+					continue
 				} else {
-					// Juste un warning, on traite quand même
+					// Just a warning, process anyway
 					slog.Warn("duplicate detected (processing anyway)", "file", fileName, "original", filepath.Base(original))
 				}
 			}
 		}
 
-		// Traiter le fichier normalement
+		// Process file normally
 		if ctx.isPhoto(fileName) {
 			if err := processPicture(cfg, ctx, file.FileInfo, group.folderName); err != nil {
 				if cfg.ContinueOnError {
@@ -494,7 +524,7 @@ func splitInternal(cfg *Config) error {
 		return refreshOrphanRAW(cfg, ctx)
 	}
 
-	// 1. Collecter fichiers média avec métadonnées
+	// 1. Collect media files with metadata
 	mediaFiles, err := collectMediaFilesWithMetadata(cfg, ctx)
 	if err != nil {
 		return fmt.Errorf("failed to collect media files: %w", err)
@@ -535,11 +565,11 @@ func splitInternal(cfg *Config) error {
 		stats.PrintSummary(cfg.Mode == ModeDryRun)
 	}()
 
-	// Créer le détecteur de doublons si activé
+	// Create duplicate detector if enabled
 	detector := NewDuplicateDetector(cfg.DetectDuplicates)
 
 	// Count file types and ModTime fallback
-	// ET pré-remplir le détecteur de doublons par taille
+	// AND pre-fill duplicate detector by size
 	for _, mf := range mediaFiles {
 		fileName := mf.FileInfo.Name()
 		if ctx.isPhoto(fileName) {
@@ -560,7 +590,7 @@ func splitInternal(cfg *Config) error {
 		// Track total bytes
 		stats.TotalBytes += mf.FileInfo.Size()
 
-		// Ajouter au pré-filtrage par taille (optimisation duplicates)
+		// Add to size pre-filtering (duplicates optimization)
 		if cfg.DetectDuplicates {
 			filePath := filepath.Join(cfg.BasePath, mf.FileInfo.Name())
 			detector.AddFile(filePath, mf.FileInfo.Size())
@@ -569,7 +599,7 @@ func splitInternal(cfg *Config) error {
 
 	var groups []fileGroup
 
-	// 2. GPS clustering mode ou mode temporel classique
+	// 2. GPS clustering mode or classic time-based mode
 	if cfg.UseGPS {
 		// GPS clustering: location FIRST, then time within each location
 		locationClusters, filesWithoutGPS := ClusterByLocation(mediaFiles, cfg.GPSRadius)
@@ -578,16 +608,16 @@ func splitInternal(cfg *Config) error {
 			"location_clusters", len(locationClusters),
 			"files_without_gps", len(filesWithoutGPS))
 
-		// Traiter chaque cluster de localisation
+		// Process each location cluster
 		for _, cluster := range locationClusters {
 			locationName := FormatLocationName(cluster.Centroid)
 			slog.Debug("processing location cluster", "location", locationName, "files", len(cluster.Files))
 
-			// Grouper par temps dans cette localisation
+			// Group by time within this location
 			timeGroups := GroupLocationByTime(cluster, cfg.Delta)
 			slog.Debug("location split into time groups", "location", locationName, "time_groups", len(timeGroups))
 
-			// Créer fileGroup pour chaque groupe temporel
+			// Create fileGroup for each time group
 			for _, timeGroup := range timeGroups {
 				if len(timeGroup) == 0 {
 					continue
@@ -602,14 +632,14 @@ func splitInternal(cfg *Config) error {
 			}
 		}
 
-		// Traiter fichiers sans GPS
+		// Process files without GPS
 		if len(filesWithoutGPS) > 0 {
-			// Trier et grouper par temps
+			// Sort and group by time
 			sortFilesByDateTime(filesWithoutGPS)
 			noGPSGroups := groupFilesByGaps(filesWithoutGPS, cfg.Delta)
 
-			// Si des clusters de localisation existent, créer sous-dossier "NoLocation"
-			// Sinon, mettre directement à la racine (pas de nécessité de ségrégation)
+			// If location clusters exist, create "NoLocation" subfolder
+			// Otherwise, put directly at root (no need for segregation)
 			if len(locationClusters) > 0 {
 				slog.Info("processing files without GPS in folder",
 					"count", len(filesWithoutGPS),
@@ -635,11 +665,11 @@ func splitInternal(cfg *Config) error {
 			}
 		}
 	} else {
-		// Mode temporel classique (backward compatible)
-		// 2. Trier chronologiquement
+		// Classic time-based mode (backward compatible)
+		// 2. Sort chronologically
 		sortFilesByDateTime(mediaFiles)
 
-		// 3. Grouper par gaps
+		// 3. Group by gaps
 		groups = groupFilesByGaps(mediaFiles, cfg.Delta)
 	}
 
@@ -650,7 +680,7 @@ func splitInternal(cfg *Config) error {
 	// Track groups created
 	stats.GroupsCreated = len(groups)
 
-	// 4. Traiter chaque groupe avec barre de progression
+	// 4. Process each group with progress bar
 	bar := createProgressBar(len(groups), "Processing groups", cfg.LogLevel, cfg.LogFormat)
 
 	for i, group := range groups {
@@ -701,13 +731,13 @@ func processPicture(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFol
 	if ctx.isRaw(fi.Name()) && !cfg.NoMoveRaw {
 		baseRawDir := filepath.Join(cfg.BasePath, datedFolder)
 
-		// Déterminer si RAW va dans raw/ ou orphan/
+		// Determine if RAW goes to raw/ or orphan/
 		targetFolder := rawFolderName
 
 		if cfg.SeparateOrphanRaw {
-			// Vérifier si RAW a un JPEG/HEIC associé
-			// Chercher dans la source (basePath) ET dans la destination (datedFolder)
-			// car le JPEG peut avoir déjà été déplacé
+			// Check if RAW has associated JPEG/HEIC
+			// Search in source (basePath) AND in destination (datedFolder)
+			// because JPEG may have already been moved
 			rawFilePath := filepath.Join(cfg.BasePath, fi.Name())
 			destFolder := filepath.Join(cfg.BasePath, datedFolder)
 			if !isRawPaired(rawFilePath, cfg.BasePath, destFolder) {
@@ -800,10 +830,10 @@ func moveFile(basedir, src, dest string, dryRun bool) error {
 func isRawPaired(rawPath string, basePath string, destFolder string) bool {
 	baseName := strings.TrimSuffix(filepath.Base(rawPath), filepath.Ext(rawPath))
 
-	// Extensions à chercher (JPEG et HEIC pour iPhone)
+	// Extensions to search for (JPEG and HEIC for iPhone)
 	photoExtensions := []string{".jpg", ".JPG", ".jpeg", ".JPEG", ".heic", ".HEIC"}
 
-	// 1. Chercher dans le dossier source (basePath)
+	// 1. Search in source folder (basePath)
 	for _, ext := range photoExtensions {
 		photoPath := filepath.Join(basePath, baseName+ext)
 		if _, err := os.Stat(photoPath); err == nil {
@@ -812,7 +842,7 @@ func isRawPaired(rawPath string, basePath string, destFolder string) bool {
 		}
 	}
 
-	// 2. Chercher dans le dossier de destination (JPEG déjà déplacé)
+	// 2. Search in destination folder (JPEG already moved)
 	if destFolder != "" {
 		for _, ext := range photoExtensions {
 			photoPath := filepath.Join(destFolder, baseName+ext)

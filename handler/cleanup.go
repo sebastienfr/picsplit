@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// Liste des dossiers système à protéger
+// List of system directories to protect
 var protectedDirs = []string{
 	".git",
 	".svn",
@@ -18,7 +18,7 @@ var protectedDirs = []string{
 	"node_modules",
 }
 
-// Liste des fichiers système à ignorer (ne comptent pas comme "contenu")
+// List of system files to ignore (don't count as "content")
 var ignoredFiles = []string{
 	".DS_Store",   // macOS
 	"Thumbs.db",   // Windows
@@ -26,37 +26,37 @@ var ignoredFiles = []string{
 	"._.DS_Store", // macOS AppleDouble
 }
 
-// CleanupResult contient les résultats du nettoyage
+// CleanupResult contains the cleanup results
 type CleanupResult struct {
 	RemovedDirs []string
 	FailedDirs  map[string]error
 }
 
-// CleanupEmptyDirs supprime récursivement les dossiers vides
-// en utilisant un parcours bottom-up (post-order traversal).
+// CleanupEmptyDirs recursively removes empty directories
+// using a bottom-up traversal (post-order traversal).
 //
-// Paramètres:
-//   - rootPath: Le chemin racine à partir duquel chercher les dossiers vides
-//   - mode: Le mode d'exécution (ModeValidate, ModeDryRun, ModeRun)
-//   - force: Si true, supprime sans confirmation. Si false, demande confirmation en mode Run
-//   - customIgnoredFiles: Liste de fichiers supplémentaires à ignorer (en plus des fichiers système par défaut)
+// Parameters:
+//   - rootPath: The root path from which to search for empty directories
+//   - mode: The execution mode (ModeValidate, ModeDryRun, ModeRun)
+//   - force: If true, removes without confirmation. If false, asks for confirmation in Run mode
+//   - customIgnoredFiles: List of additional files to ignore (in addition to default system files)
 //
-// Retourne:
-//   - CleanupResult contenant la liste des dossiers supprimés et les erreurs
-//   - error si une erreur fatale survient
+// Returns:
+//   - CleanupResult containing the list of removed directories and errors
+//   - error if a fatal error occurs
 func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgnoredFiles []string) (*CleanupResult, error) {
 	result := &CleanupResult{
 		RemovedDirs: []string{},
 		FailedDirs:  make(map[string]error),
 	}
 
-	// Mode validate ne fait pas de cleanup
+	// Validate mode does not perform cleanup
 	if mode == ModeValidate {
 		slog.Debug("skipping cleanup in validate mode")
 		return result, nil
 	}
 
-	// Combiner les fichiers ignorés par défaut avec ceux de l'utilisateur
+	// Combine default ignored files with user's custom list
 	allIgnoredFiles := append([]string{}, ignoredFiles...)
 	allIgnoredFiles = append(allIgnoredFiles, customIgnoredFiles...)
 
@@ -64,20 +64,20 @@ func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgn
 		slog.Debug("using custom ignored files for cleanup", "files", customIgnoredFiles)
 	}
 
-	// Faire plusieurs passages pour supprimer les dossiers imbriqués vides
-	// Chaque passage peut rendre des parents vides, donc on continue jusqu'à ce qu'il n'y ait plus de changement
-	maxPasses := 100 // Protection contre les boucles infinies
+	// Make multiple passes to remove nested empty directories
+	// Each pass can make parents empty, so continue until no more changes
+	maxPasses := 100 // Protection against infinite loops
 	for pass := 0; pass < maxPasses; pass++ {
 		emptyDirs := []string{}
 
-		// Collecter les dossiers vides
+		// Collect empty directories
 		err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				slog.Warn("failed to access path during cleanup", "path", path, "error", err)
-				return nil // Continue le walk
+				return nil // Continue walk
 			}
 
-			// Skip fichiers
+			// Skip files
 			if !d.IsDir() {
 				return nil
 			}
@@ -87,18 +87,18 @@ func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgn
 				return nil
 			}
 
-			// Skip dossiers protégés
+			// Skip protected directories
 			if isProtectedDir(path) {
 				slog.Debug("skipping protected directory", "path", path)
 				return fs.SkipDir
 			}
 
-			// Vérifier si vide (en tenant compte des fichiers ignorés)
+			// Check if empty (considering ignored files)
 			empty, err := isDirEmptyWithIgnored(path, allIgnoredFiles)
 			if err != nil {
 				slog.Warn("failed to check if directory is empty", "path", path, "error", err)
 				result.FailedDirs[path] = err
-				return nil // Continue le walk
+				return nil // Continue walk
 			}
 
 			if empty {
@@ -112,12 +112,12 @@ func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgn
 			return result, fmt.Errorf("failed to walk directory tree: %w", err)
 		}
 
-		// Si aucun dossier vide trouvé, on a fini
+		// If no empty directory found, we're done
 		if len(emptyDirs) == 0 {
 			break
 		}
 
-		// En mode Run sans force, demander confirmation au premier passage
+		// In Run mode without force, ask confirmation on first pass
 		if mode == ModeRun && !force && pass == 0 {
 			if !askConfirmation(emptyDirs) {
 				slog.Info("cleanup cancelled by user")
@@ -125,13 +125,13 @@ func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgn
 			}
 		}
 
-		// Parcourir les dossiers vides en ordre inverse (bottom-up)
-		// pour supprimer les sous-dossiers avant les parents
+		// Iterate empty directories in reverse order (bottom-up)
+		// to remove subdirectories before parents
 		removedInPass := 0
 		for i := len(emptyDirs) - 1; i >= 0; i-- {
 			dir := emptyDirs[i]
 
-			// Re-vérifier si vide (peut avoir changé pendant ce passage)
+			// Re-check if empty (may have changed during this pass)
 			empty, err := isDirEmptyWithIgnored(dir, allIgnoredFiles)
 			if err != nil {
 				slog.Warn("failed to re-check if directory is empty", "path", dir, "error", err)
@@ -149,12 +149,12 @@ func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgn
 				result.RemovedDirs = append(result.RemovedDirs, dir)
 				removedInPass++
 			} else {
-				// Supprimer d'abord les fichiers ignorés dans le dossier
+				// First remove ignored files in directory
 				if err := removeIgnoredFiles(dir, allIgnoredFiles); err != nil {
 					slog.Warn("failed to remove ignored files", "path", dir, "error", err)
 				}
 
-				// Puis supprimer le dossier vide
+				// Then remove empty directory
 				if err := os.Remove(dir); err != nil {
 					slog.Warn("failed to remove empty directory", "path", dir, "error", err)
 					result.FailedDirs[dir] = err
@@ -166,12 +166,12 @@ func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgn
 			}
 		}
 
-		// Si aucun dossier n'a été supprimé dans ce passage, on a fini
+		// If no directory was removed in this pass, we're done
 		if removedInPass == 0 {
 			break
 		}
 
-		// En mode dry-run, on fait un seul passage (on ne supprime pas vraiment)
+		// In dry-run mode, only one pass needed (not actually deleting)
 		if mode == ModeDryRun {
 			break
 		}
@@ -180,23 +180,23 @@ func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgn
 	return result, nil
 }
 
-// isDirEmpty vérifie si un dossier est vide
-// Ignore les fichiers système par défaut (.DS_Store, Thumbs.db, etc.)
+// isDirEmpty checks if a directory is empty
+// Ignores default system files (.DS_Store, Thumbs.db, etc.)
 func isDirEmpty(path string) (bool, error) {
 	return isDirEmptyWithIgnored(path, ignoredFiles)
 }
 
-// isDirEmptyWithIgnored vérifie si un dossier est vide en ignorant certains fichiers
+// isDirEmptyWithIgnored checks if a directory is empty ignoring certain files
 func isDirEmptyWithIgnored(path string, ignoredFilesList []string) (bool, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return false, fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	// Compter seulement les fichiers/dossiers non-ignorés
+	// Count only non-ignored files/directories
 	realCount := 0
 	for _, entry := range entries {
-		// Ignorer les fichiers spécifiés
+		// Ignore specified files
 		if !entry.IsDir() && isIgnoredFile(entry.Name(), ignoredFilesList) {
 			continue
 		}
@@ -206,7 +206,7 @@ func isDirEmptyWithIgnored(path string, ignoredFilesList []string) (bool, error)
 	return realCount == 0, nil
 }
 
-// isIgnoredFile vérifie si un fichier doit être ignoré
+// isIgnoredFile checks if a file should be ignored
 func isIgnoredFile(name string, ignoredFilesList []string) bool {
 	for _, ignored := range ignoredFilesList {
 		if name == ignored {
@@ -216,7 +216,7 @@ func isIgnoredFile(name string, ignoredFilesList []string) bool {
 	return false
 }
 
-// removeIgnoredFiles supprime tous les fichiers ignorés d'un dossier
+// removeIgnoredFiles removes all ignored files from a directory
 func removeIgnoredFiles(dirPath string, ignoredFilesList []string) error {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
@@ -244,7 +244,7 @@ func removeIgnoredFiles(dirPath string, ignoredFilesList []string) error {
 	return nil
 }
 
-// isProtectedDir vérifie si le chemin contient un dossier protégé
+// isProtectedDir checks if the path contains a protected directory
 func isProtectedDir(path string) bool {
 	for _, protected := range protectedDirs {
 		if strings.Contains(path, string(filepath.Separator)+protected) ||
@@ -255,8 +255,8 @@ func isProtectedDir(path string) bool {
 	return false
 }
 
-// askConfirmation demande confirmation à l'utilisateur pour supprimer les dossiers vides
-// Retourne true si l'utilisateur confirme, false sinon
+// askConfirmation asks user confirmation to remove empty directories
+// Returns true if user confirms, false otherwise
 func askConfirmation(emptyDirs []string) bool {
 	if len(emptyDirs) == 0 {
 		return false
@@ -267,7 +267,7 @@ func askConfirmation(emptyDirs []string) bool {
 		"count", len(emptyDirs),
 		"action", "will be removed if confirmed")
 
-	// Afficher les dossiers (max 10)
+	// Display directories (max 10)
 	displayCount := len(emptyDirs)
 	if displayCount > 10 {
 		displayCount = 10

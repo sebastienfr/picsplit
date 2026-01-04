@@ -12,21 +12,21 @@ import (
 	"github.com/rwcarlsen/goexif/exif"
 )
 
-// DateSource indique l'origine de la date extraite
+// DateSource indicates the origin of the extracted date
 type DateSource int
 
 const (
-	// DateSourceModTime indique que la date provient du système de fichiers
+	// DateSourceModTime indicates the date comes from the file system
 	DateSourceModTime DateSource = iota
-	// DateSourceEXIF indique que la date provient des métadonnées EXIF
+	// DateSourceEXIF indicates the date comes from EXIF metadata
 	DateSourceEXIF
-	// DateSourceVideoMeta indique que la date provient des métadonnées vidéo
+	// DateSourceVideoMeta indicates the date comes from video metadata
 	DateSourceVideoMeta
 )
 
 const (
 	minValidYear  = 1990
-	maxFutureDays = 1 // tolérance pour décalage d'horloge
+	maxFutureDays = 1 // tolerance for clock skew
 )
 
 const (
@@ -35,7 +35,7 @@ const (
 	dateSourceVideoMetaStr = "VideoMeta"
 )
 
-// String retourne une représentation textuelle de la source de date
+// String returns a text representation of the date source
 func (ds DateSource) String() string {
 	switch ds {
 	case DateSourceEXIF:
@@ -47,13 +47,13 @@ func (ds DateSource) String() string {
 	}
 }
 
-// GPSCoord représente des coordonnées GPS
+// GPSCoord represents GPS coordinates
 type GPSCoord struct {
 	Lat float64
 	Lon float64
 }
 
-// FileMetadata contient toutes les métadonnées extraites d'un fichier
+// FileMetadata contains all metadata extracted from a file
 type FileMetadata struct {
 	FileInfo os.FileInfo
 	DateTime time.Time
@@ -61,8 +61,8 @@ type FileMetadata struct {
 	Source   DateSource
 }
 
-// ExtractMetadata extrait toutes les métadonnées d'un fichier (date et GPS si disponible)
-// Utilise le contexte d'exécution pour respecter les extensions personnalisées
+// ExtractMetadata extracts all metadata from a file (date and GPS if available)
+// Uses execution context to respect custom extensions
 func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, error) {
 	info, err := os.Stat(filePath)
 	if err != nil {
@@ -76,9 +76,9 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 		Source:   DateSourceModTime,
 	}
 
-	// Déterminer le type de fichier en utilisant le contexte
+	// Determine file type using context
 	if ctx.isPhoto(info.Name()) {
-		// Pour les fichiers RAW, chercher le JPG associé
+		// For RAW files, search for associated JPG
 		if ctx.isRaw(info.Name()) {
 			jpegPath, err := findAssociatedJPEG(filePath)
 			if err == nil {
@@ -87,7 +87,7 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 			}
 		}
 
-		// Extraire EXIF
+		// Extract EXIF
 		dateTime, err := extractEXIFDate(filePath)
 		if err == nil && isValidDateTime(dateTime) {
 			metadata.DateTime = dateTime
@@ -97,14 +97,14 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 			slog.Debug("failed to extract EXIF date", "file", info.Name(), "error", err)
 		}
 
-		// Extraire GPS
+		// Extract GPS
 		gps, err := extractGPS(filePath)
 		if err == nil && gps != nil {
 			metadata.GPS = gps
 			slog.Debug("extracted GPS coordinates", "file", info.Name(), "lat", gps.Lat, "lon", gps.Lon)
 		}
 	} else if ctx.isMovie(info.Name()) {
-		// Extraire métadonnées vidéo
+		// Extract video metadata
 		dateTime, err := extractVideoMetadata(filePath)
 		if err == nil && isValidDateTime(dateTime) {
 			metadata.DateTime = dateTime
@@ -118,7 +118,7 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 	return metadata, nil
 }
 
-// extractEXIFDate extrait la date DateTimeOriginal d'une photo
+// extractEXIFDate extracts the DateTimeOriginal from a photo
 func extractEXIFDate(filePath string) (time.Time, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -131,7 +131,7 @@ func extractEXIFDate(filePath string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("failed to decode EXIF: %w", err)
 	}
 
-	// Chercher DateTimeOriginal (préféré) ou DateTime
+	// Search for DateTimeOriginal (preferred) or DateTime
 	dateTime, err := x.DateTime()
 	if err != nil {
 		return time.Time{}, fmt.Errorf("failed to get DateTime: %w", err)
@@ -140,7 +140,7 @@ func extractEXIFDate(filePath string) (time.Time, error) {
 	return dateTime, nil
 }
 
-// extractVideoMetadata extrait la date de création d'une vidéo MP4/MOV
+// extractVideoMetadata extracts creation date from MP4/MOV video
 func extractVideoMetadata(filePath string) (time.Time, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -157,7 +157,7 @@ func extractVideoMetadata(filePath string) (time.Time, error) {
 
 	var foundTime *time.Time
 
-	// Parser le fichier MP4
+	// Parse MP4 file
 	_, err = mp4.ReadBoxStructure(f, func(h *mp4.ReadHandle) (interface{}, error) {
 		// Expand container boxes (moov, trak, etc.) to read their children
 		if h.BoxInfo.Type == mp4.BoxTypeMoov() || h.BoxInfo.Type == mp4.BoxTypeTrak() {
@@ -165,15 +165,15 @@ func extractVideoMetadata(filePath string) (time.Time, error) {
 			return h.Expand()
 		}
 
-		// Chercher le box mvhd (movie header) qui contient creation_time
+		// Search for mvhd box (movie header) which contains creation_time
 		box, _, err := h.ReadPayload()
 		if err != nil {
 			return nil, err
 		}
 
-		// Si c'est un mvhd box
+		// If it's a mvhd box
 		if mvhd, ok := box.(*mp4.Mvhd); ok {
-			// Convertir le timestamp MP4 (secondes depuis 1904-01-01) vers time.Time
+			// Convert MP4 timestamp (seconds since 1904-01-01) to time.Time
 			// MP4 spec: timestamps should be UTC
 			mp4Epoch := time.Date(1904, 1, 1, 0, 0, 0, 0, time.UTC)
 			creationTimestamp := mvhd.GetCreationTime()
@@ -246,7 +246,7 @@ func extractVideoMetadata(filePath string) (time.Time, error) {
 	return *foundTime, nil
 }
 
-// extractGPS extrait les coordonnées GPS de l'EXIF
+// extractGPS extracts GPS coordinates from EXIF
 func extractGPS(filePath string) (*GPSCoord, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -264,7 +264,7 @@ func extractGPS(filePath string) (*GPSCoord, error) {
 		return nil, fmt.Errorf("failed to get GPS coordinates: %w", err)
 	}
 
-	// Vérifier que les coordonnées ne sont pas nulles (valeur par défaut)
+	// Verify coordinates are not null (default value)
 	if lat == 0 && lon == 0 {
 		return nil, fmt.Errorf("GPS coordinates are zero")
 	}
@@ -275,14 +275,14 @@ func extractGPS(filePath string) (*GPSCoord, error) {
 	}, nil
 }
 
-// isValidDateTime vérifie que la date est cohérente
+// isValidDateTime verifies the date is consistent
 func isValidDateTime(t time.Time) bool {
-	// Vérifier année minimum
+	// Check minimum year
 	if t.Year() < minValidYear {
 		return false
 	}
 
-	// Vérifier que ce n'est pas trop dans le futur
+	// Verify it's not too far in the future
 	maxFuture := time.Now().AddDate(0, 0, maxFutureDays)
 	return !t.After(maxFuture)
 }
@@ -293,7 +293,7 @@ func findAssociatedJPEG(rawPath string) (string, error) {
 	dir := filepath.Dir(rawPath)
 	baseName := strings.TrimSuffix(filepath.Base(rawPath), filepath.Ext(rawPath))
 
-	// Essayer différentes extensions JPEG et HEIC (iPhone shoot RAW+HEIC)
+	// Try different JPEG and HEIC extensions (iPhone shoots RAW+HEIC)
 	photoExtensions := []string{".jpg", ".JPG", ".jpeg", ".JPEG", ".heic", ".HEIC"}
 
 	for _, ext := range photoExtensions {

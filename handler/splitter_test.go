@@ -1980,7 +1980,7 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 			NoMoveMovie:       false,
 			NoMoveRaw:         false,
 			Mode:              ModeRun,
-			SeparateOrphanRaw: true, // Activé
+			SeparateOrphanRaw: true, // Enabled
 		}
 
 		err := Split(cfg)
@@ -2023,7 +2023,7 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 			NoMoveMovie:       false,
 			NoMoveRaw:         false,
 			Mode:              ModeRun,
-			SeparateOrphanRaw: false, // Désactivé
+			SeparateOrphanRaw: false, // Disabled
 		}
 
 		err := Split(cfg)
@@ -2033,7 +2033,7 @@ func TestSplit_OrphanRawSeparation(t *testing.T) {
 
 		datedFolder := "2024 - 0701 - 1400"
 
-		// Verify ALL RAW files are in raw/ (pas de séparation)
+		// Verify ALL RAW files are in raw/ (no separation)
 		pairedRawPath := filepath.Join(tmpDir, datedFolder, "raw", "PHOTO_01.NEF")
 		orphanRawPath := filepath.Join(tmpDir, datedFolder, "raw", "PHOTO_02.NEF")
 
@@ -2275,6 +2275,178 @@ func TestSplit_ContinueOnError(t *testing.T) {
 
 		if !stats.HasCriticalErrors() {
 			t.Error("Should have critical errors after adding IO error")
+		}
+	})
+}
+// TestSplit_MoveDuplicates tests the move duplicates feature
+func TestSplit_MoveDuplicates(t *testing.T) {
+	t.Run("move duplicates to duplicates folder", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create two identical files and one unique file
+		file1 := filepath.Join(tmpDir, "photo1.jpg")
+		file2 := filepath.Join(tmpDir, "photo2.jpg") // duplicate of photo1
+		file3 := filepath.Join(tmpDir, "photo3.jpg") // unique
+
+		// Same content for file1 and file2 (duplicates)
+		if err := os.WriteFile(file1, []byte("same content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file2, []byte("same content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		// Different content for file3
+		if err := os.WriteFile(file3, []byte("different content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &Config{
+			BasePath:         tmpDir,
+			Delta:            30 * time.Minute,
+			Mode:             ModeRun,
+			DetectDuplicates: true,
+			MoveDuplicates:   true,
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error = %v, want nil", err)
+		}
+
+		// Check duplicates folder exists
+		duplicatesDir := filepath.Join(tmpDir, duplicatesFolderName)
+		if _, err := os.Stat(duplicatesDir); os.IsNotExist(err) {
+			t.Error("duplicates/ folder should exist")
+		}
+
+		// Check photo2.jpg is in duplicates folder
+		duplicateFile := filepath.Join(duplicatesDir, "photo2.jpg")
+		if _, err := os.Stat(duplicateFile); os.IsNotExist(err) {
+			t.Error("photo2.jpg should be in duplicates/ folder")
+		}
+
+		// Check photo1.jpg and photo3.jpg are NOT in duplicates folder
+		if _, err := os.Stat(filepath.Join(duplicatesDir, "photo1.jpg")); !os.IsNotExist(err) {
+			t.Error("photo1.jpg should NOT be in duplicates/ folder")
+		}
+		if _, err := os.Stat(filepath.Join(duplicatesDir, "photo3.jpg")); !os.IsNotExist(err) {
+			t.Error("photo3.jpg should NOT be in duplicates/ folder")
+		}
+
+		// Check original files are in their event folder (not in duplicates)
+		// Find the created event folder
+		entries, err := os.ReadDir(tmpDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var eventFolder string
+		for _, entry := range entries {
+			if entry.IsDir() && entry.Name() != duplicatesFolderName {
+				eventFolder = entry.Name()
+				break
+			}
+		}
+
+		if eventFolder == "" {
+			t.Fatal("No event folder created")
+		}
+
+		// Check photo1 and photo3 are in event folder
+		if _, err := os.Stat(filepath.Join(tmpDir, eventFolder, "photo1.jpg")); os.IsNotExist(err) {
+			t.Error("photo1.jpg should be in event folder")
+		}
+		if _, err := os.Stat(filepath.Join(tmpDir, eventFolder, "photo3.jpg")); os.IsNotExist(err) {
+			t.Error("photo3.jpg should be in event folder")
+		}
+	})
+
+	t.Run("move duplicates in dryrun mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create two identical files
+		file1 := filepath.Join(tmpDir, "photo1.jpg")
+		file2 := filepath.Join(tmpDir, "photo2.jpg")
+
+		if err := os.WriteFile(file1, []byte("same content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file2, []byte("same content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cfg := &Config{
+			BasePath:         tmpDir,
+			Delta:            30 * time.Minute,
+			Mode:             ModeDryRun,
+			DetectDuplicates: true,
+			MoveDuplicates:   true,
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error = %v, want nil", err)
+		}
+
+		// In dryrun mode, files should NOT be moved
+		duplicatesDir := filepath.Join(tmpDir, duplicatesFolderName)
+		if _, err := os.Stat(duplicatesDir); !os.IsNotExist(err) {
+			t.Error("duplicates/ folder should NOT exist in dryrun mode")
+		}
+
+		// Original files should still be in tmpDir
+		if _, err := os.Stat(file1); os.IsNotExist(err) {
+			t.Error("photo1.jpg should still be in base dir in dryrun mode")
+		}
+		if _, err := os.Stat(file2); os.IsNotExist(err) {
+			t.Error("photo2.jpg should still be in base dir in dryrun mode")
+		}
+	})
+
+	t.Run("move duplicates with continue-on-error", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create three identical files
+		file1 := filepath.Join(tmpDir, "photo1.jpg")
+		file2 := filepath.Join(tmpDir, "photo2.jpg")
+		file3 := filepath.Join(tmpDir, "photo3.jpg")
+
+		for _, f := range []string{file1, file2, file3} {
+			if err := os.WriteFile(f, []byte("same content"), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		cfg := &Config{
+			BasePath:         tmpDir,
+			Delta:            30 * time.Minute,
+			Mode:             ModeRun,
+			DetectDuplicates: true,
+			MoveDuplicates:   true,
+			ContinueOnError:  true,
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error = %v, want nil (continue-on-error)", err)
+		}
+
+		// Check duplicates folder exists
+		duplicatesDir := filepath.Join(tmpDir, duplicatesFolderName)
+		if _, err := os.Stat(duplicatesDir); os.IsNotExist(err) {
+			t.Error("duplicates/ folder should exist")
+		}
+
+		// At least one duplicate should be moved (photo2 and/or photo3)
+		duplicateCount := 0
+		entries, err := os.ReadDir(duplicatesDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		duplicateCount = len(entries)
+
+		if duplicateCount < 1 {
+			t.Error("At least one duplicate should be moved to duplicates/ folder")
 		}
 	})
 }

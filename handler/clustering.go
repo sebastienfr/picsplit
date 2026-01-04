@@ -9,19 +9,19 @@ const (
 	noLocationFolderName = "NoLocation"
 )
 
-// LocationCluster représente un cluster de fichiers groupés par localisation
+// LocationCluster represents a cluster of files grouped by location
 type LocationCluster struct {
 	Files    []FileMetadata
 	Centroid GPSCoord
 }
 
-// ClusterByLocation groupe les fichiers par proximité géographique (DBSCAN-like)
-// Les fichiers sans GPS sont retournés séparément
+// ClusterByLocation groups files by geographic proximity (DBSCAN-like)
+// Files without GPS are returned separately
 func ClusterByLocation(files []FileMetadata, radiusMeters float64) ([]LocationCluster, []FileMetadata) {
 	var filesWithGPS []FileMetadata
 	var filesWithoutGPS []FileMetadata
 
-	// Séparer les fichiers avec/sans GPS
+	// Separate files with/without GPS
 	for _, file := range files {
 		if file.GPS != nil {
 			filesWithGPS = append(filesWithGPS, file)
@@ -44,13 +44,13 @@ func ClusterByLocation(files []FileMetadata, radiusMeters float64) ([]LocationCl
 			continue
 		}
 
-		// Créer un nouveau cluster
+		// Create a new cluster
 		cluster := LocationCluster{
 			Files: []FileMetadata{filesWithGPS[i]},
 		}
 		visited[i] = true
 
-		// Trouver tous les fichiers dans le rayon
+		// Find all files within radius
 		queue := []int{i}
 		for len(queue) > 0 {
 			current := queue[0]
@@ -76,7 +76,7 @@ func ClusterByLocation(files []FileMetadata, radiusMeters float64) ([]LocationCl
 			}
 		}
 
-		// Calculer le centroid du cluster
+		// Calculate cluster centroid
 		coords := make([]GPSCoord, len(cluster.Files))
 		for i, file := range cluster.Files {
 			coords[i] = *file.GPS
@@ -93,16 +93,16 @@ func ClusterByLocation(files []FileMetadata, radiusMeters float64) ([]LocationCl
 	return clusters, filesWithoutGPS
 }
 
-// GroupLocationByTime groupe les fichiers d'un cluster de localisation par gaps temporels
+// GroupLocationByTime groups files from a location cluster by time gaps
 func GroupLocationByTime(cluster LocationCluster, delta time.Duration) [][]FileMetadata {
 	if len(cluster.Files) == 0 {
 		return nil
 	}
 
-	// Trier par date/heure
+	// Sort by date/time
 	sortFilesByDateTime(cluster.Files)
 
-	// Grouper par gaps temporels (même algorithme que groupFilesByGaps)
+	// Group by time gaps (same algorithm as groupFilesByGaps)
 	groups := [][]FileMetadata{}
 	currentGroup := []FileMetadata{cluster.Files[0]}
 
@@ -110,16 +110,16 @@ func GroupLocationByTime(cluster LocationCluster, delta time.Duration) [][]FileM
 		gap := cluster.Files[i].DateTime.Sub(cluster.Files[i-1].DateTime)
 
 		if gap > delta {
-			// Gap trop grand, créer un nouveau groupe
+			// Gap too large, create new group
 			groups = append(groups, currentGroup)
 			currentGroup = []FileMetadata{cluster.Files[i]}
 		} else {
-			// Même groupe
+			// Same group
 			currentGroup = append(currentGroup, cluster.Files[i])
 		}
 	}
 
-	// Ajouter le dernier groupe
+	// Add last group
 	groups = append(groups, currentGroup)
 
 	slog.Debug("location split into time-based groups",
@@ -130,7 +130,7 @@ func GroupLocationByTime(cluster LocationCluster, delta time.Duration) [][]FileM
 	return groups
 }
 
-// GetNoLocationFolderName retourne le nom du dossier pour les fichiers sans GPS
+// GetNoLocationFolderName returns the folder name for files without GPS
 func GetNoLocationFolderName() string {
 	return noLocationFolderName
 }

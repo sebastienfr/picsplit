@@ -8,15 +8,15 @@ import (
 	"os"
 )
 
-// DuplicateDetector détecte les fichiers dupliqués via hash SHA256
+// DuplicateDetector detects duplicate files via SHA256 hash
 type DuplicateDetector struct {
 	hashes     map[string]string  // hash → first file path
 	duplicates map[string]string  // duplicate path → original path
-	sizeGroups map[int64][]string // size → file paths (pré-filtrage)
+	sizeGroups map[int64][]string // size → file paths (pre-filtering)
 	enabled    bool
 }
 
-// NewDuplicateDetector crée un nouveau détecteur de doublons
+// NewDuplicateDetector creates a new duplicate detector
 func NewDuplicateDetector(enabled bool) *DuplicateDetector {
 	return &DuplicateDetector{
 		hashes:     make(map[string]string),
@@ -26,8 +26,8 @@ func NewDuplicateDetector(enabled bool) *DuplicateDetector {
 	}
 }
 
-// AddFile ajoute un fichier au pré-filtrage par taille
-// Cette étape est optionnelle mais améliore les performances
+// AddFile adds a file to size pre-filtering
+// This step is optional but improves performance
 func (d *DuplicateDetector) AddFile(filePath string, size int64) {
 	if !d.enabled {
 		return
@@ -35,45 +35,45 @@ func (d *DuplicateDetector) AddFile(filePath string, size int64) {
 	d.sizeGroups[size] = append(d.sizeGroups[size], filePath)
 }
 
-// Check vérifie si le fichier est un doublon
-// Retourne (isDuplicate, originalPath, error)
+// Check verifies if the file is a duplicate
+// Returns (isDuplicate, originalPath, error)
 func (d *DuplicateDetector) Check(filePath string, size int64) (bool, string, error) {
 	if !d.enabled {
 		return false, "", nil
 	}
 
-	// Optimisation : si un seul fichier de cette taille, pas de doublon possible
+	// Optimization: if only one file of this size, no duplicate possible
 	if len(d.sizeGroups[size]) == 1 {
 		slog.Debug("unique file size, skipping hash", "file", filePath, "size", size)
 		return false, "", nil
 	}
 
-	// Calculer le hash
+	// Calculate hash
 	hash, err := sha256File(filePath)
 	if err != nil {
 		return false, "", fmt.Errorf("failed to hash file: %w", err)
 	}
 
-	// Vérifier si hash déjà vu
+	// Check if hash already seen
 	if original, found := d.hashes[hash]; found {
-		// Doublon détecté !
+		// Duplicate detected!
 		d.duplicates[filePath] = original
 		slog.Debug("duplicate detected", "file", filePath, "original", original, "hash", hash[:16])
 		return true, original, nil
 	}
 
-	// Premier fichier avec ce hash
+	// First file with this hash
 	d.hashes[hash] = filePath
 	return false, "", nil
 }
 
-// GetDuplicates retourne la map des doublons détectés
+// GetDuplicates returns the map of detected duplicates
 // map[duplicate_path]original_path
 func (d *DuplicateDetector) GetDuplicates() map[string]string {
 	return d.duplicates
 }
 
-// GetStats retourne les statistiques du détecteur
+// GetStats returns detector statistics
 func (d *DuplicateDetector) GetStats() (totalFiles int, uniqueSizes int, potentialDuplicates int, confirmedDuplicates int) {
 	totalFiles = 0
 	uniqueSizes = 0
@@ -92,7 +92,7 @@ func (d *DuplicateDetector) GetStats() (totalFiles int, uniqueSizes int, potenti
 	return
 }
 
-// sha256File calcule le hash SHA256 d'un fichier
+// sha256File calculates the SHA256 hash of a file
 func sha256File(filePath string) (string, error) {
 	f, err := os.Open(filePath)
 	if err != nil {

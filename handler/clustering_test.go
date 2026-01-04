@@ -131,7 +131,7 @@ func TestClusterByLocation(t *testing.T) {
 				t.Errorf("ClusterByLocation() noGPS = %d, want %d", len(noGPS), tt.expectedNoGPS)
 			}
 
-			// Vérifier que tous les clusters ont un centroid
+			// Verify that all clusters have a centroid
 			for i, cluster := range clusters {
 				if cluster.Centroid.Lat == 0 && cluster.Centroid.Lon == 0 && len(cluster.Files) > 0 {
 					t.Errorf("Cluster %d has zero centroid but contains files", i)
@@ -250,7 +250,7 @@ func TestGroupLocationByTime(t *testing.T) {
 				t.Errorf("GroupLocationByTime() groups = %d, want %d", len(groups), tt.expectedGroups)
 			}
 
-			// Vérifier que les groupes ne sont pas vides (sauf si expectedGroups == 0)
+			// Verify that groups are not empty (except if expectedGroups == 0)
 			for i, group := range groups {
 				if len(group) == 0 {
 					t.Errorf("Group %d is empty", i)
@@ -269,7 +269,7 @@ func TestGetNoLocationFolderName(t *testing.T) {
 	}
 }
 
-// fakeFileInfo implémente os.FileInfo pour les tests
+// fakeFileInfo implements os.FileInfo for tests
 type fakeFileInfo struct {
 	name    string
 	size    int64
