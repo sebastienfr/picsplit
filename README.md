@@ -278,7 +278,23 @@ picsplit --video-ext dng --use-exif --delta 2h ./wedding-footage
 
 ## 🗺️ Roadmap
 
-picsplit évolue continuellement avec de nouvelles fonctionnalités basées sur les retours utilisateurs. Voici les prochaines versions planifiées :
+picsplit évolue continuellement avec de nouvelles fonctionnalités basées sur les retours utilisateurs.
+
+### ✅ v2.8.0 - Duplicate Management & Code Quality (Released - January 2026)
+
+**Objectif** : Finaliser la gestion des doublons avec déplacement automatique et améliorer la qualité du code.
+
+**Fonctionnalités livrées** :
+
+- ✅ **Déplacement automatique des doublons** ([#16](https://github.com/sebastienfr/picsplit/issues/16))  
+  `--move-duplicates` déplace les doublons vers `duplicates/` folder (recommandé)
+
+- ✅ **Code 100% en anglais**  
+  Traduction complète de tous les commentaires français pour améliorer la maintenabilité
+
+**Toutes les fonctionnalités de v2.8.0 sont implémentées ! 🎉**
+
+---
 
 ### ✅ v2.7.0 - Logging & Observability (Released - January 2026)
 
@@ -322,35 +338,6 @@ Disk usage: 24.5 GB moved, 158.0 MB/s throughput
 
 ⚠ Operation completed with 3 errors
 ```
-
----
-
-### 🚀 v2.7.0 - Robustness & Advanced Features (Upcoming)
-
-**Objectif** : Renforcer la robustesse avec gestion d'erreurs avancée et nouveaux modes.
-
-**Fonctionnalités livrées** :
-
-- ✅ **Mode continue-on-error** ([#12](https://github.com/sebastienfr/picsplit/issues/12))  
-  Traiter tous les fichiers possibles sans s'arrêter au premier échec  
-  Flag: `--continue-on-error` / `--coe`
-
-- ✅ **Mode validation rapide** ([#13](https://github.com/sebastienfr/picsplit/issues/13))  
-  `--mode validate|dryrun|run` pour pré-vérification ultra-rapide (5s vs 2m)  
-  **Breaking change** : Retire `--dryrun` (remplacé par `--mode dryrun`)  
-  Nouveau fichier: `handler/validator.go` avec `Validate()` et `ValidationReport`
-
-- ✅ **Nettoyage automatique des répertoires vides** ([#14](https://github.com/sebastienfr/picsplit/issues/14))  
-  `--cleanup-empty-dirs` pour supprimer automatiquement les dossiers vides après traitement  
-  Flags: `--cleanup-empty-dirs` / `--ced`, `--cleanup-ignore`, `--force` / `-f`
-
-- ✅ **Détection de doublons** ([#15](https://github.com/sebastienfr/picsplit/issues/15))  
-  `--detect-duplicates` pour identifier fichiers identiques via hash SHA256  
-  `--skip-duplicates` pour skip automatiquement les doublons  
-  Optimisation par taille (10x plus rapide : hash uniquement fichiers de même taille)  
-  Flags: `--detect-duplicates` / `--dd`, `--skip-duplicates` / `--sd`
-
-**Toutes les fonctionnalités de v2.8.0 sont implémentées ! 🎉**
 
 **Workflow recommandé** :
 ```bash
@@ -686,22 +673,25 @@ picsplit --coe --mode dryrun ./photos
 
 ---
 
-#### Duplicate Detection
+#### Duplicate Detection & Management
 
-Detect and optionally skip duplicate files based on binary content (SHA256 hash).
+Detect and manage duplicate files based on binary content (SHA256 hash) with three modes.
 
 ```bash
-# Detection only (warns about duplicates but processes them anyway)
+# Mode 1: Detection only (warns about duplicates but processes them anyway)
 picsplit --detect-duplicates ./photos
 
-# Detection + automatic skip (duplicates are not processed)
+# Mode 2: Skip duplicates (leaves them in source folder)
 picsplit --detect-duplicates --skip-duplicates ./photos
 
+# Mode 3: Move duplicates to dedicated folder (RECOMMENDED ⭐)
+picsplit --detect-duplicates --move-duplicates ./photos
+
 # Short aliases
-picsplit --dd --sd ./photos
+picsplit --dd --md ./photos
 
 # Combine with other flags
-picsplit --dd --sd --cleanup-empty-dirs ./photos
+picsplit --dd --md --cleanup-empty-dirs ./photos
 ```
 
 **How it works:**
@@ -716,9 +706,10 @@ picsplit --dd --sd --cleanup-empty-dirs ./photos
    - First file with a hash becomes the "original"
    - Subsequent files with same hash are marked as duplicates
 
-3. **Two modes**:
+3. **Three modes**:
    - **Detection-only** (`--detect-duplicates`): Warns but processes all files
-   - **Skip mode** (`--detect-duplicates --skip-duplicates`): Skips duplicates automatically
+   - **Skip mode** (`--detect-duplicates --skip-duplicates`): Skips duplicates (remain in source)
+   - **Move mode** (`--detect-duplicates --move-duplicates`): Moves duplicates to `duplicates/` folder ⭐
 
 **Output examples:**
 
@@ -738,6 +729,26 @@ Skip mode:
   ...
 ```
 
+Move mode (RECOMMENDED):
+```
+ℹ Duplicates moved (count=3):
+  - moved duplicate file=IMG_001_copy.jpg to=duplicates/ original=IMG_001.jpg
+  - moved duplicate file=VID_002 (1).mp4 to=duplicates/ original=VID_002.mp4
+  ...
+```
+
+**Result structure with move mode:**
+```
+photos/
+├── duplicates/              ✅ Duplicates isolated here
+│   ├── IMG_001_copy.jpg
+│   └── VID_002 (1).mp4
+├── 2024-01-15_Event1/       ✅ Originals organized
+│   └── IMG_001.jpg
+└── 2024-01-20_Event2/
+    └── VID_002.mp4
+```
+
 **Performance:**
 
 - Without optimization: ~200 MB/s hashing speed
@@ -747,7 +758,7 @@ Skip mode:
 **Use cases:**
 - Clean up duplicate imports from multiple cameras
 - Detect accidental re-imports of same photo session
-- Skip processing duplicates to save time and disk space
+- Isolate duplicates for manual review before deletion
 - Identify backup copies mixed with originals
 
 **Validation:**
@@ -756,9 +767,31 @@ Skip mode:
 picsplit --skip-duplicates ./photos
 # ❌ Error: --skip-duplicates requires --detect-duplicates
 
+# Error: --move-duplicates requires --detect-duplicates
+picsplit --move-duplicates ./photos
+# ❌ Error: --move-duplicates requires --detect-duplicates
+
+# Error: --skip-duplicates and --move-duplicates are mutually exclusive
+picsplit --dd --sd --md ./photos
+# ❌ Error: --skip-duplicates and --move-duplicates are mutually exclusive
+
 # Correct usage
-picsplit --detect-duplicates --skip-duplicates ./photos
+picsplit --detect-duplicates --move-duplicates ./photos
 # ✅ Works
+```
+
+**Recommended workflow:**
+```bash
+# 1. Preview what would be moved (dry run)
+picsplit --dd --md --mode dryrun ./photos
+
+# 2. Execute move
+picsplit --dd --md ./photos
+
+# 3. Review duplicates/ folder content
+
+# 4. Delete duplicates if confirmed
+rm -rf ./photos/duplicates/
 ```
 
 ---
@@ -781,6 +814,7 @@ picsplit --detect-duplicates --skip-duplicates ./photos
 | `--cleanup-ignore` | `--ci` | - | Additional files to ignore when checking if directory is empty (comma-separated, e.g., `.picasa.ini,.nomedia`) |
 | `--detect-duplicates` | `--dd` | `false` | Detect duplicate files via SHA256 hash |
 | `--skip-duplicates` | `--sd` | `false` | Skip duplicate files automatically (requires `--detect-duplicates`) |
+| `--move-duplicates` | `--md` | `false` | Move duplicates to `duplicates/` folder (requires `--detect-duplicates`, mutually exclusive with `--skip-duplicates`) |
 | `--force` | `-f` | `false` | Skip all confirmation prompts (cleanup, merge, etc.) |
 | `--log-level` | - | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `--log-format` | - | `text` | Log format: `text` or `json` |

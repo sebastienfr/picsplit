@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [2.8.0] - 2026-01-04
+
 ### Added
+- **Move duplicates to dedicated folder** ([#16](https://github.com/sebastienfr/picsplit/issues/16)): New `--move-duplicates` flag to move duplicate files to `duplicates/` folder
+  - Requires `--detect-duplicates` flag (validation enforced)
+  - Mutually exclusive with `--skip-duplicates` 
+  - Creates `duplicates/` folder automatically at basePath root
+  - Moves detected duplicates to isolated folder for easy cleanup
+  - Eliminates magic strings with `duplicatesFolderName` constant
+  - Works in all modes (validate, dryrun, run)
+  - Compatible with `--continue-on-error` flag
+  - Flags: `--move-duplicates` / `--md`
+  - New tests: `TestSplit_MoveDuplicates` with 3 comprehensive subtests
+  - New tests: `TestConfig_Validate_MoveDuplicates` for flag validation
 - **Empty directory cleanup** ([#14](https://github.com/sebastienfr/picsplit/issues/14)): New `--cleanup-empty-dirs` flag to remove empty directories after processing
   - Multi-pass bottom-up traversal to remove nested empty directories
   - Smart file ignoring: directories with only `.DS_Store`, `Thumbs.db`, etc. are considered empty
@@ -78,15 +93,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Files affected: `handler/splitter.go:286-291, 326-330`
 
 ### Documentation
+- Updated README: Added `--move-duplicates` documentation with examples
 - Updated README: Corrected all `merge` command examples (flags before arguments)
 - Updated README: Added execution modes documentation with examples
-- New CHANGELOG entry documenting all issue #13 changes
+- Updated README: Roadmap section (v2.8.0 completed)
+- New CHANGELOG entry for v2.8.0 release
 
-### Planned
-- Interactive console GUI (TUI)
-- Duplicate detection and handling
-- Photo similarity clustering
-- Empty directory cleanup (`--cleanup-empty-dirs`)
+### Improvements
+- **Code quality**: Translated all French comments to English (100% English codebase)
+  - Improved code maintainability and international collaboration
+  - ~40 comments translated across 13 files
+  - No French words remaining in production code
+
+### Technical
+- New config field: `Config.MoveDuplicates` (default: `false`)
+- New constant: `duplicatesFolderName = "duplicates"`
+- Enhanced `processGroup()` in `handler/splitter.go` with duplicate move logic
+- Enhanced `Config.Validate()` with MoveDuplicates validation rules
+- New file: `handler/config_test.go` with validation tests
+- Enhanced `handler/splitter_test.go` with move-duplicates scenarios
+- Test coverage maintained at 79.8%
+
+---
+
+## [2.7.0] - 2026-01-04
+
+### Added
+- **Structured logging** ([#7](https://github.com/sebastienfr/picsplit/issues/7)): Migration to `log/slog` (Go stdlib)
+  - Typed, structured logs with key-value pairs
+  - Better performance than previous logging library
+  - Consistent logging format across the application
+
+- **Configurable log levels** ([#8](https://github.com/sebastienfr/picsplit/issues/8)): New logging configuration
+  - `--log-level debug|info|warn|error` flag
+  - `--log-format text|json` flag
+  - JSON format for log parsing and monitoring tools
+
+- **Real-time progress bar** ([#9](https://github.com/sebastienfr/picsplit/issues/9)): Visual feedback during processing
+  - Shows completion percentage in real-time
+  - Automatic TTY detection (only in terminals)
+  - Disabled in CI/CD environments and with JSON logging
+
+- **Enhanced summary with metrics** ([#10](https://github.com/sebastienfr/picsplit/issues/10)): Detailed processing statistics
+  - Duration and throughput (MB/s)
+  - File breakdown by type (photos, videos, RAW)
+  - Disk usage statistics
+  - Separate critical errors and warnings sections
+
+- **Typed errors with context** ([#11](https://github.com/sebastienfr/picsplit/issues/11)): Better error handling
+  - Structured error types (Permission, IO, Validation, EXIF, etc.)
+  - Automatic suggestions for common issues
+  - Context-rich error messages with file paths and operations
+
+- **Continue-on-error mode** ([#12](https://github.com/sebastienfr/picsplit/issues/12)): Process all files despite errors
+  - `--continue-on-error` / `--coe` flag
+  - Collects all errors instead of stopping at first failure
+  - Shows all errors in final summary
+  - Useful for large libraries with mixed quality sources
+
+- **Fast validation mode** ([#13](https://github.com/sebastienfr/picsplit/issues/13)): Ultra-fast pre-checks (5s vs 2min)
+  - `--mode validate|dryrun|run` execution modes
+  - Validates extensions, permissions, disk space without EXIF extraction
+  - New file: `handler/validator.go`
+  - Breaking change: Removed `--dryrun` flag (use `--mode dryrun`)
+
+- **Empty directory cleanup** ([#14](https://github.com/sebastienfr/picsplit/issues/14)): Automatic cleanup after processing
+  - `--cleanup-empty-dirs` / `--ced` flag
+  - Multi-pass bottom-up removal of nested empty directories
+  - Smart file ignoring (`.DS_Store`, `Thumbs.db`, etc.)
+  - Custom ignored files via `--cleanup-ignore`
+  - Interactive confirmation (unless `--force`)
+  - Protected directories (`.git`, `.svn`, `node_modules`)
+  - New file: `handler/cleanup.go`
+
+- **Duplicate detection** ([#15](https://github.com/sebastienfr/picsplit/issues/15)): Identify duplicate files via SHA256 hash
+  - `--detect-duplicates` / `--dd` flag for detection
+  - `--skip-duplicates` / `--sd` flag to skip duplicates
+  - Size-based pre-filtering optimization (10x faster)
+  - Shows duplicate statistics in summary
+  - New file: `handler/duplicates.go`
+
+- **Force flag**: `--force` / `-f` to skip confirmation prompts
+- **Enhanced version display**: Shows build time + commit time
+
+### Changed
+- **BREAKING**: Removed `--dryrun` flag → use `--mode dryrun` instead
+- **Version flag**: Changed from `--print-version` / `-V` to `--version` / `-v`
+- Test coverage maintained at 79.0% in handler package
+  - 70+ new tests added across all new features
+
+### Fixed
+- **Bug**: `isOrganizedFolder()` incorrectly checked `len(name) == 19` instead of `18`
+- **Bug**: `Split()` missing mode handling - validate mode executed full split
+- **Bug**: `refreshOrphanRAW()` incorrect statistics when processing from within date folder
+
+### Documentation
+- Updated README with all new features and examples
+- Updated CLI reference with new flags
+- Added comprehensive CHANGELOG entries
 
 ---
 
@@ -393,7 +497,10 @@ Running v2.1.0 on v2.0.0-organized folders will create new folders.
 
 ---
 
-[Unreleased]: https://github.com/sebastienfr/picsplit/compare/v2.5.2...HEAD
+[Unreleased]: https://github.com/sebastienfr/picsplit/compare/v2.8.0...HEAD
+[2.8.0]: https://github.com/sebastienfr/picsplit/compare/v2.7.0...v2.8.0
+[2.7.0]: https://github.com/sebastienfr/picsplit/compare/v2.6.0...v2.7.0
+[2.6.0]: https://github.com/sebastienfr/picsplit/compare/v2.5.2...v2.6.0
 [2.5.2]: https://github.com/sebastienfr/picsplit/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/sebastienfr/picsplit/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/sebastienfr/picsplit/compare/v2.4.0...v2.5.0
