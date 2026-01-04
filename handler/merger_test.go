@@ -500,6 +500,11 @@ func TestValidateMerge_EmptySource(t *testing.T) {
 }
 
 func TestValidateMerge_TargetScanError(t *testing.T) {
+	// Skip on Windows (permission model is different)
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping permission test on Windows")
+	}
+
 	tmpDir := t.TempDir()
 
 	// Create source

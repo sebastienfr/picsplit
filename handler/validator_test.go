@@ -3,6 +3,7 @@ package handler
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -217,6 +218,11 @@ func TestValidate(t *testing.T) {
 	})
 
 	t.Run("permission errors", func(t *testing.T) {
+		// Skip on Windows (permission model is different)
+		if runtime.GOOS == "windows" {
+			t.Skip("Skipping permission test on Windows")
+		}
+
 		tempDir := t.TempDir()
 
 		// Create a file with no read permissions
