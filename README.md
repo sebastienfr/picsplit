@@ -280,9 +280,25 @@ picsplit --video-ext dng --use-exif --delta 2h ./wedding-footage
 
 picsplit continuously evolves with new features based on user feedback.
 
-### 🔜 v2.9.0 - Smart Folder Creation & GPS Improvements (Planned - Q1 2026)
+### ✅ v2.9.0 - GPS Clustering Fixed for Mixed File Sets (Released - January 2026)
 
-**Goal**: Make picsplit more practical for real-world iPhone backups and reduce folder clutter.
+**Goal**: Make GPS clustering work with real-world iPhone backups containing mixed files.
+
+**Features delivered**:
+
+- ✅ **GPS clustering for mixed file sets** ([#18](https://github.com/sebastienfr/picsplit/issues/18))  
+  Fixed strict EXIF fallback bug that deleted GPS from all files  
+  GPS coordinates now preserved even when some files lack EXIF  
+  Makes `--gps` finally usable with iPhone backups (photos + screenshots + videos)
+
+**Impact**:
+- 🍎 iPhone backups now organize by location (70% photos with GPS + 30% screenshots without)
+- 🌍 GPS clustering activates if **any** files have coordinates (not all-or-nothing)
+- 📊 New GPS coverage analysis logs show extraction statistics
+
+**Breaking change**: Selective EXIF fallback (bugfix) - see CHANGELOG for migration notes
+
+### 🔜 v2.10.0 - Smart Folder Creation (Planned - Q1 2026)
 
 **Features planned**:
 
@@ -290,19 +306,7 @@ picsplit continuously evolves with new features based on user feedback.
   `--min-group-size 5` prevents creating folders for small photo sets  
   Groups below threshold stay at parent root for cleaner structure
 
-- 📍 **GPS threshold for mixed files** ([#18](https://github.com/sebastienfr/picsplit/issues/18))  
-  `--gps-threshold 0.10` enables GPS clustering when >= 10% of files have GPS  
-  Finally makes `--gps` usable with iPhone backups containing screenshots/videos
-
-**Use cases**:
-- 🍎 iPhone backup organization (GPS + screenshots mixed)
-- 📸 Focus folder structure on real events (>= 5 photos)
-- 🗂️ Keep navigation simple with fewer folders
-- 🌍 Use GPS clustering even with non-GPS files present
-
-**Feedback welcome!** Help shape these features:
-- [Issue #17](https://github.com/sebastienfr/picsplit/issues/17) - Minimum group size
-- [Issue #18](https://github.com/sebastienfr/picsplit/issues/18) - GPS threshold
+**Feedback welcome**: [Issue #17](https://github.com/sebastienfr/picsplit/issues/17)
 
 ---
 
@@ -518,6 +522,35 @@ photos/
 ```
 
 **Note**: `NoLocation/` only appears when some files have GPS and others don't. If all files lack GPS, time-based folders are created at root level.
+
+**GPS with Mixed Files** (v2.9.0+):
+
+picsplit intelligently handles files with and without GPS metadata:
+- **Photos with GPS**: Organized by location + time
+- **Photos without GPS** (screenshots, edited photos): Grouped in `NoLocation/` by time
+- **Videos**: Usually lack GPS, grouped by time with photos from same period
+
+**Example**: iPhone backup (200 photos with GPS, 50 screenshots without GPS)
+```bash
+picsplit --gps ./iphone-backup
+```
+
+Result:
+```
+iphone-backup/
+├── 50.6508N-3.0735E/          # Lille (150 photos)
+│   ├── 2020 - 1106 - 2023/
+│   └── 2020 - 1107 - 1145/
+├── 48.8707N-2.3390E/          # Paris (50 photos)
+│   └── 2021 - 0520 - 1600/
+└── NoLocation/                 # Screenshots + videos
+    └── 2020 - 1108 - 0900/
+```
+
+**Key behavior**:
+- ✅ GPS clustering activates if **any** files have GPS coordinates
+- ✅ Files without GPS are **not skipped** - they're grouped separately
+- ✅ Each file uses its own extracted metadata (GPS preserved even if some files lack EXIF)
 
 ---
 

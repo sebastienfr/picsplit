@@ -152,17 +152,14 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 		}
 	}
 
-	// Strict mode: if at least one file without valid EXIF → fallback all to ModTime
+	// Selective fallback: files without EXIF use ModTime, others keep their extracted metadata
+	// GPS coordinates are preserved even when DateTime falls back to ModTime
 	if cfg.UseEXIF && exifFailCount > 0 {
-		slog.Warn("EXIF validation failed, using file modification times for all files",
-			"failed_count", exifFailCount,
-			"total_files", len(mediaFiles))
-
-		for i := range mediaFiles {
-			mediaFiles[i].DateTime = mediaFiles[i].FileInfo.ModTime()
-			mediaFiles[i].Source = DateSourceModTime
-			mediaFiles[i].GPS = nil
-		}
+		slog.Warn("files used ModTime fallback",
+			"count", exifFailCount,
+			"reason", "EXIF metadata unavailable or corrupted")
+		// Each file keeps its individually extracted metadata (DateTime and GPS)
+		// No global reset - this allows GPS clustering to work with mixed file sets
 	}
 
 	return mediaFiles, nil
@@ -601,6 +598,24 @@ func splitInternal(cfg *Config) error {
 
 	// 2. GPS clustering mode or classic time-based mode
 	if cfg.UseGPS {
+		// Log GPS coverage analysis
+		var filesWithGPSCount int
+		for _, mf := range mediaFiles {
+			if mf.GPS != nil {
+				filesWithGPSCount++
+			}
+		}
+
+		gpsPercentage := 0.0
+		if len(mediaFiles) > 0 {
+			gpsPercentage = float64(filesWithGPSCount) / float64(len(mediaFiles)) * 100
+		}
+
+		slog.Info("GPS coverage analysis",
+			"files_with_gps", filesWithGPSCount,
+			"total_files", len(mediaFiles),
+			"coverage_pct", fmt.Sprintf("%.1f%%", gpsPercentage))
+
 		// GPS clustering: location FIRST, then time within each location
 		locationClusters, filesWithoutGPS := ClusterByLocation(mediaFiles, cfg.GPSRadius)
 

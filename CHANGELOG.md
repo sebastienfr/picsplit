@@ -9,6 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.9.0] - 2026-01-05
+
+### Fixed
+- **GPS clustering now works with mixed file sets** (Closes [#18](https://github.com/sebastienfr/picsplit/issues/18))
+  - **Root cause**: Strict EXIF fallback mode deleted ALL GPS coordinates when even 1 file lacked EXIF
+  - **Impact**: GPS clustering was unusable for iPhone backups (screenshots/videos without EXIF → all GPS lost)
+  - GPS coordinates now preserved even when some files use ModTime fallback
+  - Each file uses its own extracted metadata independently (selective fallback)
+  - **Breaking change** but represents correct behavior (bugfix, not feature)
+  - Example: iPhone backup with 70% GPS photos + 30% screenshots → GPS clustering now activates
+  - Modified: `handler/splitter.go` (lines 155-165) - removed global metadata reset loop
+  - Modified: `handler/clustering.go` - improved GPS disabled warning message
+
+### Changed
+- **EXIF fallback behavior improved** ([#18](https://github.com/sebastienfr/picsplit/issues/18))
+  - **Old behavior**: If 1+ files lack EXIF → **all files** fall back to ModTime (GPS lost)
+  - **New behavior**: Each file uses its own extracted metadata independently (GPS preserved)
+  - DateTime falls back to ModTime only for files without valid EXIF
+  - GPS coordinates preserved regardless of DateTime source
+  - No longer suppresses GPS clustering when mixed file types present
+
+### Added
+- **GPS coverage analysis logging** ([#18](https://github.com/sebastienfr/picsplit/issues/18))
+  - New log message shows GPS availability statistics when `--gps` flag used
+  - Format: `GPS coverage analysis: files_with_gps=X total_files=Y coverage_pct=Z%`
+  - Helps diagnose why GPS clustering may be disabled (0% coverage)
+- **Enhanced GPS documentation**
+  - README section: "GPS with Mixed Files" explains behavior with screenshots/videos
+  - Example: iPhone backup organization (photos + screenshots)
+  - Key behaviors documented: selective fallback, GPS preservation
+
+### Technical Details
+- Removed strict all-or-nothing EXIF fallback (lines 161-165 of `handler/splitter.go`)
+- Files now retain individually extracted `DateTime` and `GPS` fields
+- Warning message changed: `"files used ModTime fallback"` (count shown)
+- GPS clustering activates if **any** files have coordinates (not all-or-nothing)
+
+### Migration Notes
+This is a **breaking change** from v2.8.0 strict EXIF behavior:
+- **v2.8.0**: Mixed EXIF/ModTime files → all forced to ModTime (GPS lost)
+- **v2.9.0**: Mixed files → each keeps individual metadata (GPS preserved)
+
+If you relied on strict all-or-nothing fallback, this change improves real-world
+usability (iPhone backups, mixed media libraries) but may change folder structure
+for files that previously had GPS suppressed.
+
+**Recommendation**: Re-run picsplit on backups that failed GPS clustering in v2.8.0.
+
+---
+
 ## [2.8.0] - 2026-01-04
 
 ### Added

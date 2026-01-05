@@ -31,7 +31,8 @@ func ClusterByLocation(files []FileMetadata, radiusMeters float64) ([]LocationCl
 	}
 
 	if len(filesWithGPS) == 0 {
-		slog.Debug("no files with GPS coordinates found")
+		slog.Warn("GPS clustering disabled: no files with GPS coordinates",
+			"total_files", len(files))
 		return nil, filesWithoutGPS
 	}
 
