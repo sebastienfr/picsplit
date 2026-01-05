@@ -2451,6 +2451,7 @@ func TestSplit_MoveDuplicates(t *testing.T) {
 		}
 	})
 }
+
 // TestSplit_GPSCoverageLogging tests GPS coverage analysis logging
 // TestSplit_GPSMode_ZeroCoverage tests GPS mode when no files have GPS coordinates
 func TestSplit_GPSMode_ZeroCoverage(t *testing.T) {
@@ -2540,4 +2541,528 @@ func TestCollectMediaFiles_MixedExtensions(t *testing.T) {
 	// Verify selective fallback happened (warning should be logged)
 	// In real scenario, some files would use EXIF, some ModTime
 	// But all should be processed
+}
+
+// TestSplit_MinGroupSize tests minimum group size threshold
+func TestSplit_MinGroupSize(t *testing.T) {
+	t.Run("default_threshold_5", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+		// Create groups: 6 photos (1 group), 3 photos (1 group), 2 photos (1 group)
+		createTestFile(t, tmpDir, "g1_photo1.jpg", baseTime)
+		createTestFile(t, tmpDir, "g1_photo2.jpg", baseTime.Add(5*time.Minute))
+		createTestFile(t, tmpDir, "g1_photo3.jpg", baseTime.Add(10*time.Minute))
+		createTestFile(t, tmpDir, "g1_photo4.jpg", baseTime.Add(15*time.Minute))
+		createTestFile(t, tmpDir, "g1_photo5.jpg", baseTime.Add(20*time.Minute))
+		createTestFile(t, tmpDir, "g1_photo6.jpg", baseTime.Add(25*time.Minute))
+
+		createTestFile(t, tmpDir, "g2_photo1.jpg", baseTime.Add(2*time.Hour))
+		createTestFile(t, tmpDir, "g2_photo2.jpg", baseTime.Add(2*time.Hour+5*time.Minute))
+		createTestFile(t, tmpDir, "g2_photo3.jpg", baseTime.Add(2*time.Hour+10*time.Minute))
+
+		createTestFile(t, tmpDir, "g3_photo1.jpg", baseTime.Add(4*time.Hour))
+		createTestFile(t, tmpDir, "g3_photo2.jpg", baseTime.Add(4*time.Hour+5*time.Minute))
+
+		cfg := &Config{
+			BasePath:     tmpDir,
+			Delta:        30 * time.Minute,
+			NoMoveMovie:  false,
+			NoMoveRaw:    false,
+			Mode:         ModeRun,
+			UseEXIF:      false,
+			MinGroupSize: 5, // Default threshold
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		// Group 1 (6 files) should create folder
+		// Group 2 (3 files) should be at root (< 5)
+		// Group 3 (2 files) should be at root (< 5)
+
+		entries, err := os.ReadDir(tmpDir)
+		if err != nil {
+			t.Fatalf("failed to read directory: %v", err)
+		}
+
+		foundLargeGroupFolder := false
+		filesAtRoot := 0
+
+		for _, entry := range entries {
+			if entry.IsDir() && strings.Contains(entry.Name(), "2024 - ") {
+				foundLargeGroupFolder = true
+			}
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jpg") {
+				filesAtRoot++
+			}
+		}
+
+		if !foundLargeGroupFolder {
+			t.Error("Expected folder for group with >= 5 files")
+		}
+
+		if filesAtRoot != 5 { // 3 + 2 files at root
+			t.Errorf("Expected 5 files at root (small groups), got %d", filesAtRoot)
+		}
+	})
+
+	t.Run("custom_threshold_3", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+		// Create groups: 4 photos, 2 photos
+		createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+		createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(5*time.Minute))
+		createTestFile(t, tmpDir, "photo3.jpg", baseTime.Add(10*time.Minute))
+		createTestFile(t, tmpDir, "photo4.jpg", baseTime.Add(15*time.Minute))
+
+		createTestFile(t, tmpDir, "photo5.jpg", baseTime.Add(2*time.Hour))
+		createTestFile(t, tmpDir, "photo6.jpg", baseTime.Add(2*time.Hour+5*time.Minute))
+
+		cfg := &Config{
+			BasePath:     tmpDir,
+			Delta:        30 * time.Minute,
+			Mode:         ModeRun,
+			UseEXIF:      false,
+			MinGroupSize: 3, // Custom threshold
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		// Group 1 (4 files) should create folder (>= 3)
+		// Group 2 (2 files) should be at root (< 3)
+
+		entries, err := os.ReadDir(tmpDir)
+		if err != nil {
+			t.Fatalf("failed to read directory: %v", err)
+		}
+
+		foundFolders := 0
+		filesAtRoot := 0
+
+		for _, entry := range entries {
+			if entry.IsDir() && strings.Contains(entry.Name(), "2024 - ") {
+				foundFolders++
+			}
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jpg") {
+				filesAtRoot++
+			}
+		}
+
+		if foundFolders != 1 {
+			t.Errorf("Expected 1 folder, got %d", foundFolders)
+		}
+
+		if filesAtRoot != 2 {
+			t.Errorf("Expected 2 files at root, got %d", filesAtRoot)
+		}
+	})
+
+	t.Run("threshold_zero_no_filtering", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+		createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+		createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(2*time.Hour))
+
+		cfg := &Config{
+			BasePath:     tmpDir,
+			Delta:        30 * time.Minute,
+			Mode:         ModeRun,
+			UseEXIF:      false,
+			MinGroupSize: 0, // No filtering
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		// Both single-file groups should create folders
+
+		entries, err := os.ReadDir(tmpDir)
+		if err != nil {
+			t.Fatalf("failed to read directory: %v", err)
+		}
+
+		foundFolders := 0
+		for _, entry := range entries {
+			if entry.IsDir() && strings.Contains(entry.Name(), "2024 - ") {
+				foundFolders++
+			}
+		}
+
+		if foundFolders != 2 {
+			t.Errorf("Expected 2 folders with threshold=0, got %d", foundFolders)
+		}
+	})
+
+	t.Run("all_groups_below_threshold", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+		// Create 3 groups with 2 files each
+		createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+		createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(5*time.Minute))
+
+		createTestFile(t, tmpDir, "photo3.jpg", baseTime.Add(2*time.Hour))
+		createTestFile(t, tmpDir, "photo4.jpg", baseTime.Add(2*time.Hour+5*time.Minute))
+
+		createTestFile(t, tmpDir, "photo5.jpg", baseTime.Add(4*time.Hour))
+		createTestFile(t, tmpDir, "photo6.jpg", baseTime.Add(4*time.Hour+5*time.Minute))
+
+		cfg := &Config{
+			BasePath:     tmpDir,
+			Delta:        30 * time.Minute,
+			Mode:         ModeRun,
+			UseEXIF:      false,
+			MinGroupSize: 5,
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		// All groups below threshold - all files should be at root
+
+		entries, err := os.ReadDir(tmpDir)
+		if err != nil {
+			t.Fatalf("failed to read directory: %v", err)
+		}
+
+		filesAtRoot := 0
+		foundFolders := 0
+
+		for _, entry := range entries {
+			if entry.IsDir() && strings.Contains(entry.Name(), "2024 - ") {
+				foundFolders++
+			}
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jpg") {
+				filesAtRoot++
+			}
+		}
+
+		if foundFolders != 0 {
+			t.Errorf("Expected 0 folders when all groups below threshold, got %d", foundFolders)
+		}
+
+		if filesAtRoot != 6 {
+			t.Errorf("Expected 6 files at root, got %d", filesAtRoot)
+		}
+	})
+
+	t.Run("dryrun_mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+		createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+		createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(5*time.Minute))
+
+		cfg := &Config{
+			BasePath:     tmpDir,
+			Delta:        30 * time.Minute,
+			Mode:         ModeDryRun,
+			UseEXIF:      false,
+			MinGroupSize: 5,
+		}
+
+		err := Split(cfg)
+		if err != nil {
+			t.Fatalf("Split() error: %v", err)
+		}
+
+		// Dry run should not move files
+		entries, err := os.ReadDir(tmpDir)
+		if err != nil {
+			t.Fatalf("failed to read directory: %v", err)
+		}
+
+		filesAtRoot := 0
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jpg") {
+				filesAtRoot++
+			}
+		}
+
+		if filesAtRoot != 2 {
+			t.Errorf("DryRun should not move files, expected 2 at root, got %d", filesAtRoot)
+		}
+	})
+}
+
+// TestConfig_Validate_MinGroupSize tests MinGroupSize validation
+func TestConfig_Validate_MinGroupSize(t *testing.T) {
+	t.Run("negative_threshold_invalid", func(t *testing.T) {
+		cfg := &Config{
+			BasePath:     "/tmp/test",
+			Delta:        30 * time.Minute,
+			MinGroupSize: -1,
+		}
+
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("Expected error for negative MinGroupSize")
+		}
+	})
+
+	t.Run("zero_threshold_valid", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfg := &Config{
+			BasePath:     tmpDir,
+			Delta:        30 * time.Minute,
+			MinGroupSize: 0,
+		}
+
+		err := cfg.Validate()
+		if err != nil {
+			t.Errorf("MinGroupSize=0 should be valid: %v", err)
+		}
+	})
+
+	t.Run("positive_threshold_valid", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfg := &Config{
+			BasePath:     tmpDir,
+			Delta:        30 * time.Minute,
+			MinGroupSize: 10,
+		}
+
+		err := cfg.Validate()
+		if err != nil {
+			t.Errorf("MinGroupSize=10 should be valid: %v", err)
+		}
+	})
+}
+
+// TestSplit_MinGroupSize_GPSMode tests MinGroupSize with GPS clustering
+func TestSplit_MinGroupSize_GPSMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	// Create small group (2 files) - should be at root in GPS mode
+	createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+	createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(5*time.Minute))
+
+	cfg := &Config{
+		BasePath:     tmpDir,
+		Delta:        30 * time.Minute,
+		Mode:         ModeRun,
+		UseEXIF:      false,
+		UseGPS:       true, // GPS mode
+		GPSRadius:    2000.0,
+		MinGroupSize: 5,
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() error: %v", err)
+	}
+
+	// Small group should be at root (no GPS coordinates anyway)
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to read directory: %v", err)
+	}
+
+	filesAtRoot := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jpg") {
+			filesAtRoot++
+		}
+	}
+
+	if filesAtRoot != 2 {
+		t.Errorf("Expected 2 files at root in GPS mode with small group, got %d", filesAtRoot)
+	}
+}
+
+// TestProcessPictureAtRoot tests processPictureAtRoot function
+func TestProcessPictureAtRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	createTestFile(t, tmpDir, "photo.jpg", baseTime)
+
+	fi, err := os.Stat(filepath.Join(tmpDir, "photo.jpg"))
+	if err != nil {
+		t.Fatalf("failed to stat file: %v", err)
+	}
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Mode:        ModeRun,
+		NoMoveRaw:   false,
+		NoMoveMovie: false,
+	}
+
+	ctx := newDefaultExecutionContext()
+
+	// Process photo at root (no destination root)
+	err = processPictureAtRoot(cfg, ctx, fi, "")
+	if err != nil {
+		t.Fatalf("processPictureAtRoot() error: %v", err)
+	}
+
+	// File should still be at root (no folder created for single file at root)
+	if _, err := os.Stat(filepath.Join(tmpDir, "photo.jpg")); err != nil {
+		t.Error("Photo should be at root after processPictureAtRoot")
+	}
+}
+
+// TestProcessMovieAtRoot tests processMovieAtRoot function
+func TestProcessMovieAtRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	createTestFile(t, tmpDir, "video.mov", baseTime)
+
+	fi, err := os.Stat(filepath.Join(tmpDir, "video.mov"))
+	if err != nil {
+		t.Fatalf("failed to stat file: %v", err)
+	}
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Mode:        ModeRun,
+		NoMoveMovie: false,
+	}
+
+	// Process video at root with NoMoveMovie=false (should create mov/ folder)
+	err = processMovieAtRoot(cfg, fi, "")
+	if err != nil {
+		t.Fatalf("processMovieAtRoot() error: %v", err)
+	}
+
+	// Video should be in mov/ folder
+	movDir := filepath.Join(tmpDir, "mov")
+	if _, err := os.Stat(movDir); os.IsNotExist(err) {
+		t.Error("mov/ folder should be created")
+	}
+
+	if _, err := os.Stat(filepath.Join(movDir, "video.mov")); os.IsNotExist(err) {
+		t.Error("Video should be in mov/ folder")
+	}
+}
+
+// TestProcessPictureAtRoot_RAW tests processPictureAtRoot with RAW files
+func TestProcessPictureAtRoot_RAW(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	// Create RAW file and associated JPEG
+	createTestFile(t, tmpDir, "photo.nef", baseTime)
+	createTestFile(t, tmpDir, "photo.jpg", baseTime)
+
+	fiRAW, err := os.Stat(filepath.Join(tmpDir, "photo.nef"))
+	if err != nil {
+		t.Fatalf("failed to stat RAW file: %v", err)
+	}
+
+	cfg := &Config{
+		BasePath:          tmpDir,
+		Mode:              ModeRun,
+		NoMoveRaw:         false,
+		SeparateOrphanRaw: true,
+	}
+
+	ctx := newDefaultExecutionContext()
+
+	// Process RAW at root - should go to raw/ folder (paired with JPEG)
+	err = processPictureAtRoot(cfg, ctx, fiRAW, "")
+	if err != nil {
+		t.Fatalf("processPictureAtRoot() RAW error: %v", err)
+	}
+
+	// RAW should be in raw/ folder (paired with JPEG)
+	rawDir := filepath.Join(tmpDir, "raw")
+	if _, err := os.Stat(rawDir); os.IsNotExist(err) {
+		t.Error("raw/ folder should be created for paired RAW")
+	}
+
+	if _, err := os.Stat(filepath.Join(rawDir, "photo.nef")); os.IsNotExist(err) {
+		t.Error("RAW file should be in raw/ folder")
+	}
+}
+
+// TestProcessPictureAtRoot_WithDestinationRoot tests with GPS location root
+func TestProcessPictureAtRoot_WithDestinationRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	// Create location folder (GPS mode scenario)
+	locationRoot := "50.6508N-3.0735E" // Lille
+	locationDir := filepath.Join(tmpDir, locationRoot)
+	if err := os.MkdirAll(locationDir, 0755); err != nil {
+		t.Fatalf("failed to create location dir: %v", err)
+	}
+
+	createTestFile(t, tmpDir, "photo.jpg", baseTime)
+
+	fi, err := os.Stat(filepath.Join(tmpDir, "photo.jpg"))
+	if err != nil {
+		t.Fatalf("failed to stat file: %v", err)
+	}
+
+	cfg := &Config{
+		BasePath: tmpDir,
+		Mode:     ModeRun,
+	}
+
+	ctx := newDefaultExecutionContext()
+
+	// Process photo at location root
+	err = processPictureAtRoot(cfg, ctx, fi, locationRoot)
+	if err != nil {
+		t.Fatalf("processPictureAtRoot() with destination root error: %v", err)
+	}
+
+	// File should be at location root
+	expectedPath := filepath.Join(tmpDir, locationRoot, "photo.jpg")
+	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		t.Error("Photo should be at location root")
+	}
+}
+
+// TestProcessMovieAtRoot_WithDestinationRoot tests with GPS location root
+func TestProcessMovieAtRoot_WithDestinationRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+
+	locationRoot := "48.8707N-2.3390E" // Paris
+	locationDir := filepath.Join(tmpDir, locationRoot)
+	if err := os.MkdirAll(locationDir, 0755); err != nil {
+		t.Fatalf("failed to create location dir: %v", err)
+	}
+
+	createTestFile(t, tmpDir, "video.mov", baseTime)
+
+	fi, err := os.Stat(filepath.Join(tmpDir, "video.mov"))
+	if err != nil {
+		t.Fatalf("failed to stat file: %v", err)
+	}
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Mode:        ModeRun,
+		NoMoveMovie: false,
+	}
+
+	// Process video at location root - should go to Paris/mov/
+	err = processMovieAtRoot(cfg, fi, locationRoot)
+	if err != nil {
+		t.Fatalf("processMovieAtRoot() with destination root error: %v", err)
+	}
+
+	// Video should be in Paris/mov/
+	expectedPath := filepath.Join(tmpDir, locationRoot, "mov", "video.mov")
+	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		t.Errorf("Video should be at %s", expectedPath)
+	}
 }

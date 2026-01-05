@@ -51,6 +51,7 @@ type Config struct {
 	DetectDuplicates bool          // Detect duplicate files via SHA256 hash (v2.8.0+)
 	SkipDuplicates   bool          // Skip duplicate files automatically (requires DetectDuplicates) (v2.8.0+)
 	MoveDuplicates   bool          // Move duplicates to duplicates/ subfolder (requires DetectDuplicates, mutually exclusive with SkipDuplicates) (v2.8.0+)
+	MinGroupSize     int           // Minimum group size to create folder (default: 5). Groups below threshold stay at parent root (v2.9.0+)
 }
 
 // Validate checks if the configuration is valid
@@ -77,6 +78,10 @@ func (c *Config) Validate() error {
 
 	if c.SkipDuplicates && c.MoveDuplicates {
 		return errors.New("--skip-duplicates and --move-duplicates are mutually exclusive")
+	}
+
+	if c.MinGroupSize < 0 {
+		return errors.New("min-group-size must be >= 0")
 	}
 
 	// Check if path exists and is a directory
@@ -112,5 +117,6 @@ func DefaultConfig(basePath string) *Config {
 		Force:             false,                  // Ask for confirmation by default (v2.8.0+)
 		DetectDuplicates:  false,                  // Detection disabled by default (v2.8.0+)
 		SkipDuplicates:    false,                  // Skip disabled by default (v2.8.0+)
+		MinGroupSize:      5,                      // Groups below 5 files stay at root by default (v2.9.0+)
 	}
 }

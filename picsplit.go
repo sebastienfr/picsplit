@@ -80,6 +80,9 @@ var (
 	// moveDuplicates -move-duplicates : move duplicates to duplicates/ folder (v2.8.0+)
 	moveDuplicates = false
 
+	// minGroupSize -min-group-size : minimum group size to create folder (v2.9.0+)
+	minGroupSize = 5
+
 	header, _ = base64.StdEncoding.DecodeString("ICAgICAgIC5fXyAgICAgICAgICAgICAgICAgICAgICAuX18gIC5fXyAgX18KX19f" +
 		"X19fIHxfX3wgX19fXCAgIF9fX19fX19fX19fXyB8ICB8IHxfX3wvICB8XwpcX19fXyBcfCAgfC8gX19fXCAvICBfX18vXF9fX18gXHwgIHw" +
 		"gfCAgXCAgIF9fXAp8ICB8Xz4gPiAgXCAgXF9fXyBcX19fIFwgfCAgfF8+ID4gIHxffCAgfHwgIHwKfCAgIF9fL3xfX3xcX19fICA+X19fXy" +
@@ -507,6 +510,13 @@ func main() {
 			Destination: &moveDuplicates,
 			Usage:       "Move duplicates to duplicates/ folder (requires --detect-duplicates, mutually exclusive with --skip-duplicates)",
 		},
+		&cli.IntFlag{
+			Name:        "min-group-size",
+			Aliases:     []string{"mgs"},
+			Value:       5,
+			Destination: &minGroupSize,
+			Usage:       "Minimum group size to create folder (default: 5). Groups below threshold stay at parent root",
+		},
 		&cli.BoolFlag{
 			Name:        flagForce,
 			Aliases:     []string{"f"},
@@ -618,6 +628,7 @@ func main() {
 			DetectDuplicates:  detectDuplicates,
 			SkipDuplicates:    skipDuplicates,
 			MoveDuplicates:    moveDuplicates,
+			MinGroupSize:      minGroupSize,
 			LogLevel:          c.String(flagLogLevel),
 			LogFormat:         c.String(flagLogFormat),
 		}

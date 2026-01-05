@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.9.0] - 2026-01-05
 
+### Added
+- **Minimum group size threshold** (Closes [#17](https://github.com/sebastienfr/picsplit/issues/17))
+  - New `--min-group-size` / `--mgs` flag to set minimum files required to create folder
+  - **Default value: 5** (breaking change from v2.8.0 where all groups created folders)
+  - Groups below threshold stay at parent root instead of creating folder
+  - **Time-based mode**: Small groups stay at basePath root
+  - **GPS mode**: Small groups stay at location root (e.g., `Paris/photo.jpg` instead of `Paris/2024-0615-1200/photo.jpg`)
+  - New stats: `SmallGroupsCount` and `RootFilesCount` in processing summary
+  - Supports all modes: validate, dryrun, run
+  - Works with duplicates detection, RAW separation, cleanup, etc.
+- New functions: `processPictureAtRoot()` and `processMovieAtRoot()` for small group handling
+- Comprehensive tests: 8 test scenarios covering default/custom thresholds, GPS mode, dry-run, validation
+
 ### Fixed
 - **GPS clustering now works with mixed file sets** (Closes [#18](https://github.com/sebastienfr/picsplit/issues/18))
   - **Root cause**: Strict EXIF fallback mode deleted ALL GPS coordinates when even 1 file lacked EXIF
@@ -47,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GPS clustering activates if **any** files have coordinates (not all-or-nothing)
 
 ### Migration Notes
+
+**Breaking Change 1: GPS EXIF Fallback**
+
 This is a **breaking change** from v2.8.0 strict EXIF behavior:
 - **v2.8.0**: Mixed EXIF/ModTime files → all forced to ModTime (GPS lost)
 - **v2.9.0**: Mixed files → each keeps individual metadata (GPS preserved)
@@ -56,6 +72,34 @@ usability (iPhone backups, mixed media libraries) but may change folder structur
 for files that previously had GPS suppressed.
 
 **Recommendation**: Re-run picsplit on backups that failed GPS clustering in v2.8.0.
+
+**Breaking Change 2: MinGroupSize Default**
+
+This is a **breaking change** from v2.8.0 folder creation behavior:
+- **v2.8.0**: All groups create folders (MinGroupSize = 0 implicitly)
+- **v2.9.0**: Groups with < 5 files stay at root (MinGroupSize = 5 default)
+
+**Impact**:
+- Cleaner folder structure (fewer folders for screenshots, random photos)
+- Small photo sets easier to find (at root, no deep folder diving)
+- May change existing workflows that expect every group to have a folder
+
+**Migration options**:
+1. **Keep new behavior** (recommended): Enjoy cleaner structure, small groups at root
+2. **Restore old behavior**: Use `--min-group-size 0` to create folders for all groups
+3. **Custom threshold**: Use `--min-group-size 10` or any value that fits your use case
+
+**Example**:
+```bash
+# v2.8.0 behavior (100 groups → 100 folders, even for 1-file groups)
+picsplit ./photos
+
+# v2.9.0 default (groups >= 5 files → folders, others at root)
+picsplit ./photos
+
+# Restore v2.8.0 behavior (all groups create folders)
+picsplit --min-group-size 0 ./photos
+```
 
 ---
 

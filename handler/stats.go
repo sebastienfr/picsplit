@@ -36,6 +36,10 @@ type ProcessingStats struct {
 	DuplicatesDetected map[string]string // Map of detected duplicates (duplicate path -> original path)
 	DuplicatesSkipped  int               // Number of duplicates skipped
 
+	// MinGroupSize (v2.9.0+)
+	SmallGroupsCount int // Number of groups below MinGroupSize threshold
+	RootFilesCount   int // Number of files left at root (from small groups)
+
 	// Issues
 	ModTimeFallbackCount int // Files that fell back to ModTime
 	Errors               []*PicsplitError
@@ -158,6 +162,13 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 
 	// Groups created
 	slog.Info("groups created", "count", s.GroupsCreated)
+
+	// MinGroupSize stats (v2.9.0+)
+	if s.SmallGroupsCount > 0 {
+		slog.Info("small groups filtered",
+			"small_groups", s.SmallGroupsCount,
+			"files_at_root", s.RootFilesCount)
+	}
 
 	// RAW organization
 	if s.PairedRaw > 0 || s.OrphanRaw > 0 {

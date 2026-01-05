@@ -280,9 +280,9 @@ picsplit --video-ext dng --use-exif --delta 2h ./wedding-footage
 
 picsplit continuously evolves with new features based on user feedback.
 
-### ✅ v2.9.0 - GPS Clustering Fixed for Mixed File Sets (Released - January 2026)
+### ✅ v2.9.0 - Smart Folder Creation & GPS Improvements (Released - January 2026)
 
-**Goal**: Make GPS clustering work with real-world iPhone backups containing mixed files.
+**Goal**: Make GPS clustering work with real-world iPhone backups and reduce folder clutter.
 
 **Features delivered**:
 
@@ -291,22 +291,22 @@ picsplit continuously evolves with new features based on user feedback.
   GPS coordinates now preserved even when some files lack EXIF  
   Makes `--gps` finally usable with iPhone backups (photos + screenshots + videos)
 
+- ✅ **Minimum group size threshold** ([#17](https://github.com/sebastienfr/picsplit/issues/17))  
+  `--min-group-size 5` prevents creating folders for small photo sets (default: 5)  
+  Groups below threshold stay at parent root for cleaner structure  
+  Works in both time-based and GPS modes
+
 **Impact**:
 - 🍎 iPhone backups now organize by location (70% photos with GPS + 30% screenshots without)
 - 🌍 GPS clustering activates if **any** files have coordinates (not all-or-nothing)
 - 📊 New GPS coverage analysis logs show extraction statistics
+- 📂 Cleaner folder structure: Small groups (< 5 files) stay at root
+- 🎯 Focus on real events: Only create folders for significant photo sets
 
-**Breaking change**: Selective EXIF fallback (bugfix) - see CHANGELOG for migration notes
-
-### 🔜 v2.10.0 - Smart Folder Creation (Planned - Q1 2026)
-
-**Features planned**:
-
-- 🔄 **Minimum group size threshold** ([#17](https://github.com/sebastienfr/picsplit/issues/17))  
-  `--min-group-size 5` prevents creating folders for small photo sets  
-  Groups below threshold stay at parent root for cleaner structure
-
-**Feedback welcome**: [Issue #17](https://github.com/sebastienfr/picsplit/issues/17)
+**Breaking changes**: 
+- Selective EXIF fallback (bugfix)
+- Default MinGroupSize = 5 (was 0)
+- See CHANGELOG for migration notes
 
 ---
 
@@ -551,6 +551,75 @@ iphone-backup/
 - ✅ GPS clustering activates if **any** files have GPS coordinates
 - ✅ Files without GPS are **not skipped** - they're grouped separately
 - ✅ Each file uses its own extracted metadata (GPS preserved even if some files lack EXIF)
+
+---
+
+#### Minimum Group Size
+
+Reduce folder clutter by setting a threshold for folder creation.
+
+**Problem**: Small photo sets (1-2 screenshots, random photos) create too many folders.
+
+**Solution**: Groups below threshold stay at parent root instead of creating folders.
+
+```bash
+# Default: Groups with < 5 files stay at root
+picsplit ./photos
+
+# Custom threshold: Groups with < 10 files stay at root
+picsplit --min-group-size 10 ./photos
+
+# No filtering: Create folders for all groups (even single files)
+picsplit --min-group-size 0 ./photos
+```
+
+**Example**: Default threshold (5 files)
+
+```
+Input: 100 photos creating 15 groups (sizes: 20, 15, 8, 6, 5, 4, 3, 2, 2, 1, 1, 1, 1, 1, 1)
+
+Output:
+photos/
+├── 2024 - 0615 - 1200/  # 20 files ✅
+├── 2024 - 0618 - 0900/  # 15 files ✅
+├── 2024 - 0620 - 1400/  # 8 files ✅
+├── 2024 - 0622 - 1000/  # 6 files ✅
+├── 2024 - 0624 - 1600/  # 5 files ✅
+├── screenshot1.png       # Small group (4 files) at root
+├── screenshot2.png
+├── screenshot3.png
+├── screenshot4.png
+├── random1.jpg           # Small group (3 files) at root
+├── random2.jpg
+└── random3.jpg
+    ... (remaining 7 small groups at root)
+```
+
+**GPS Mode Behavior**:
+
+Groups below threshold stay at **location root** (not basePath root).
+
+```bash
+picsplit --gps --min-group-size 5 ./travel
+
+# Result:
+travel/
+├── 48.8566N-2.3522E/          # Paris
+│   ├── 2024 - 0615 - 1200/    # Large group (8 photos)
+│   ├── photo1.jpg             # Small group (2 photos) at Paris/ root
+│   └── photo2.jpg
+└── 50.6508N-3.0735E/          # Lille
+    ├── 2024 - 0620 - 0900/    # Large group (12 photos)
+    ├── quick1.jpg             # Small group (1 photo) at Lille/ root
+    └── ...
+```
+
+**Benefits**:
+- ✅ Cleaner structure: Focus on real events (>= 5 photos)
+- ✅ Easy access: Small sets at root (no deep diving)
+- ✅ Flexible: Adjust threshold per use case
+
+**Breaking change (v2.9.0)**: Default threshold is 5 (was 0 in v2.8.0). Set `--min-group-size 0` for old behavior.
 
 ---
 

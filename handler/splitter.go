@@ -692,16 +692,38 @@ func splitInternal(cfg *Config) error {
 		"count", len(groups),
 		"delta", cfg.Delta)
 
-	// Track groups created
-	stats.GroupsCreated = len(groups)
+	// 3. Filter groups by MinGroupSize (v2.9.0+)
+	// Groups below threshold will have files left at root instead of creating folder
+	largeGroups := make([]fileGroup, 0, len(groups))
+	smallGroups := make([]fileGroup, 0)
 
-	// 4. Process each group with progress bar
-	bar := createProgressBar(len(groups), "Processing groups", cfg.LogLevel, cfg.LogFormat)
+	for _, group := range groups {
+		if len(group.files) >= cfg.MinGroupSize {
+			largeGroups = append(largeGroups, group)
+		} else {
+			smallGroups = append(smallGroups, group)
+			stats.SmallGroupsCount++
+			stats.RootFilesCount += len(group.files)
+		}
+	}
 
-	for i, group := range groups {
+	if stats.SmallGroupsCount > 0 {
+		slog.Info("filtered small groups",
+			"small_groups", stats.SmallGroupsCount,
+			"files_at_root", stats.RootFilesCount,
+			"threshold", cfg.MinGroupSize)
+	}
+
+	// Track groups created (only large groups create folders)
+	stats.GroupsCreated = len(largeGroups)
+
+	// 4. Process large groups (create folders) with progress bar
+	bar := createProgressBar(len(largeGroups), "Processing groups", cfg.LogLevel, cfg.LogFormat)
+
+	for i, group := range largeGroups {
 		slog.Info("processing group",
 			"current", i+1,
-			"total", len(groups),
+			"total", len(largeGroups),
 			"folder", group.folderName,
 			"files", len(group.files))
 
@@ -725,6 +747,98 @@ func splitInternal(cfg *Config) error {
 
 		if bar != nil {
 			_ = bar.Add(1)
+		}
+	}
+
+	// 5. Process small groups (leave files at root)
+	if len(smallGroups) > 0 {
+		slog.Info("processing small groups at root",
+			"count", len(smallGroups),
+			"total_files", stats.RootFilesCount)
+
+		for _, group := range smallGroups {
+			// Extract destination root from folder name
+			// For GPS mode: "Paris/2024-0615-1200" → root = "Paris"
+			// For time mode: "2024-0615-1200" → root = "" (basePath root)
+			destinationRoot := ""
+			if cfg.UseGPS && filepath.Dir(group.folderName) != "." {
+				destinationRoot = filepath.Dir(group.folderName)
+			}
+
+			// Process each file in small group
+			for _, file := range group.files {
+				fileName := file.FileInfo.Name()
+				filePath := filepath.Join(cfg.BasePath, fileName)
+
+				// Check duplicates (same logic as processGroup)
+				if cfg.DetectDuplicates {
+					isDup, original, err := detector.Check(filePath, file.FileInfo.Size())
+					if err != nil {
+						slog.Warn("failed to check duplicate", "file", fileName, "error", err)
+					} else if isDup {
+						stats.DuplicatesDetected[filePath] = original
+
+						if cfg.SkipDuplicates {
+							slog.Info("skipping duplicate", "file", fileName, "original", filepath.Base(original))
+							stats.DuplicatesSkipped++
+							continue
+						} else if cfg.MoveDuplicates {
+							duplicatesDir := filepath.Join(cfg.BasePath, duplicatesFolderName)
+							if cfg.Mode != ModeDryRun {
+								if err := os.MkdirAll(duplicatesDir, permDirectory); err != nil {
+									slog.Error("failed to create duplicates folder", "error", err)
+									if cfg.ContinueOnError {
+										stats.AddError(fmt.Errorf("failed to create duplicates folder: %w", err))
+										continue
+									}
+									return err
+								}
+							}
+
+							if err := moveFile(cfg.BasePath, fileName, duplicatesFolderName, cfg.Mode == ModeDryRun); err != nil {
+								slog.Error("failed to move duplicate", "file", fileName, "error", err)
+								if cfg.ContinueOnError {
+									stats.AddError(fmt.Errorf("failed to move duplicate %s: %w", fileName, err))
+									continue
+								}
+								return err
+							}
+							if cfg.Mode == ModeDryRun {
+								slog.Info("would move duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
+							} else {
+								slog.Info("moved duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
+							}
+							stats.DuplicatesSkipped++
+							continue
+						} else {
+							slog.Warn("duplicate detected (processing anyway)", "file", fileName, "original", filepath.Base(original))
+						}
+					}
+				}
+
+				// Process file at root
+				if ctx.isPhoto(fileName) {
+					if err := processPictureAtRoot(cfg, ctx, file.FileInfo, destinationRoot); err != nil {
+						if cfg.ContinueOnError {
+							stats.AddError(err)
+							slog.Error("failed to process photo at root, continuing", "file", fileName, "error", err)
+							continue
+						}
+						return err
+					}
+					stats.ProcessedFiles++
+				} else if ctx.isMovie(fileName) {
+					if err := processMovieAtRoot(cfg, file.FileInfo, destinationRoot); err != nil {
+						if cfg.ContinueOnError {
+							stats.AddError(err)
+							slog.Error("failed to process video at root, continuing", "file", fileName, "error", err)
+							continue
+						}
+						return err
+					}
+					stats.ProcessedFiles++
+				}
+			}
 		}
 	}
 
@@ -869,4 +983,70 @@ func isRawPaired(rawPath string, basePath string, destFolder string) bool {
 	}
 
 	return false // Orphelin
+}
+
+// processPictureAtRoot handles the processing of picture files for small groups (left at root)
+func processPictureAtRoot(cfg *Config, ctx *executionContext, fi os.FileInfo, destinationRoot string) error {
+	slog.Debug("processing picture at root", "file", fi.Name(), "dest_root", destinationRoot)
+
+	destDir := destinationRoot
+
+	// Special handling for RAW files
+	if ctx.isRaw(fi.Name()) && !cfg.NoMoveRaw {
+		baseRawDir := cfg.BasePath
+		if destinationRoot != "" {
+			baseRawDir = filepath.Join(cfg.BasePath, destinationRoot)
+		}
+
+		// Determine if RAW goes to raw/ or orphan/
+		targetFolder := rawFolderName
+
+		if cfg.SeparateOrphanRaw {
+			rawFilePath := filepath.Join(cfg.BasePath, fi.Name())
+			destFolder := baseRawDir
+			if !isRawPaired(rawFilePath, cfg.BasePath, destFolder) {
+				targetFolder = orphanFolderName
+				slog.Debug("orphan RAW file (no JPEG/HEIC)", "file", fi.Name(), "dest", orphanFolderName)
+			}
+		}
+
+		rawDir, err := findOrCreateFolder(baseRawDir, targetFolder, cfg.Mode == ModeDryRun)
+		if err != nil {
+			return err
+		}
+		if destinationRoot != "" {
+			destDir = filepath.Join(destinationRoot, rawDir)
+		} else {
+			destDir = rawDir
+		}
+	}
+
+	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.Mode == ModeDryRun)
+}
+
+// processMovieAtRoot handles the processing of movie files for small groups (left at root)
+func processMovieAtRoot(cfg *Config, fi os.FileInfo, destinationRoot string) error {
+	slog.Debug("processing movie at root", "file", fi.Name(), "dest_root", destinationRoot)
+
+	destDir := destinationRoot
+
+	// Move to separate mov folder if needed
+	if !cfg.NoMoveMovie {
+		baseMovieDir := cfg.BasePath
+		if destinationRoot != "" {
+			baseMovieDir = filepath.Join(cfg.BasePath, destinationRoot)
+		}
+
+		movieDir, err := findOrCreateFolder(baseMovieDir, movFolderName, cfg.Mode == ModeDryRun)
+		if err != nil {
+			return err
+		}
+		if destinationRoot != "" {
+			destDir = filepath.Join(destinationRoot, movieDir)
+		} else {
+			destDir = movieDir
+		}
+	}
+
+	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.Mode == ModeDryRun)
 }
