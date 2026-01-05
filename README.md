@@ -280,9 +280,9 @@ picsplit --video-ext dng --use-exif --delta 2h ./wedding-footage
 
 picsplit continuously evolves with new features based on user feedback.
 
-### 🔜 v2.9.0 - Smart Folder Creation (Planned - Q1 2026)
+### 🔜 v2.9.0 - Smart Folder Creation & GPS Improvements (Planned - Q1 2026)
 
-**Goal**: Reduce folder clutter by setting minimum group size threshold.
+**Goal**: Make picsplit more practical for real-world iPhone backups and reduce folder clutter.
 
 **Features planned**:
 
@@ -290,12 +290,19 @@ picsplit continuously evolves with new features based on user feedback.
   `--min-group-size 5` prevents creating folders for small photo sets  
   Groups below threshold stay at parent root for cleaner structure
 
-**Use cases**:
-- iPhone backup cleanup (remove screenshot clutter)
-- Focus folder structure on real events (>= 5 photos)
-- Keep navigation simple with fewer folders
+- 📍 **GPS threshold for mixed files** ([#18](https://github.com/sebastienfr/picsplit/issues/18))  
+  `--gps-threshold 0.10` enables GPS clustering when >= 10% of files have GPS  
+  Finally makes `--gps` usable with iPhone backups containing screenshots/videos
 
-**Feedback welcome!** Help shape this feature by commenting on [issue #17](https://github.com/sebastienfr/picsplit/issues/17).
+**Use cases**:
+- 🍎 iPhone backup organization (GPS + screenshots mixed)
+- 📸 Focus folder structure on real events (>= 5 photos)
+- 🗂️ Keep navigation simple with fewer folders
+- 🌍 Use GPS clustering even with non-GPS files present
+
+**Feedback welcome!** Help shape these features:
+- [Issue #17](https://github.com/sebastienfr/picsplit/issues/17) - Minimum group size
+- [Issue #18](https://github.com/sebastienfr/picsplit/issues/18) - GPS threshold
 
 ---
 
