@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.9.0] - 2026-01-05
 
 ### Added
+- **GPS Reverse Geocoding** (Closes [#18](https://github.com/sebastienfr/picsplit/issues/18) - Enhancement)
+  - New `--gps-geocoding` / `--gpsg` flag to add human-readable location names to GPS folders
+  - **Two-tier API approach** with automatic fallback:
+    1. **Nominatim (OpenStreetMap)** - Primary, free, rate-limited to 1 req/s
+    2. **BigDataCloud** - Fallback API when Nominatim fails or times out
+  - **Folder naming**: `48.8566N-2.3522E - France - Paris/` (with geocoding) vs `48.8566N-2.3522E/` (without)
+  - **Thread-safe geocoding cache** to avoid repeated API calls for same location
+  - **Rate limiting** compliance for Nominatim API (1 request/second)
+  - **Graceful fallback** to GPS coordinates if APIs fail or timeout (3s per request)
+  - **Sanitized folder names** (removes invalid characters like `/`, `\`, `:`, etc.)
+  - New file: `handler/geo.go` with geocoding functions
+  - New tests: `handler/geo_test.go` with comprehensive geocoding test coverage
 - **Minimum group size threshold** (Closes [#17](https://github.com/sebastienfr/picsplit/issues/17))
   - New `--min-group-size` / `--mgs` flag to set minimum files required to create folder
   - **Default value: 5** (breaking change from v2.8.0 where all groups created folders)
@@ -21,11 +33,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New stats: `SmallGroupsCount` and `RootFilesCount` in processing summary
   - Supports all modes: validate, dryrun, run
   - Works with duplicates detection, RAW separation, cleanup, etc.
+- **Improved Progress Bars**
+  - Progress bars now **always displayed** (removed TTY requirement)
+  - **Written to stderr** instead of stdout to avoid conflicts with piped output
+  - **Two separate progress bars**:
+    1. Geocoding progress: Shows reverse geocoding progress for location clusters (when `--gpsg` enabled)
+    2. Processing progress: Shows combined progress for ALL groups (large + small)
+  - **Better user feedback** for long-running geocoding operations
+  - New file: `handler/progress_test.go` with 100% coverage on progress bar logic
 - New functions: `processPictureAtRoot()` and `processMovieAtRoot()` for small group handling
 - Comprehensive tests: 8 test scenarios covering default/custom thresholds, GPS mode, dry-run, validation
 
 ### Fixed
-- **GPS clustering now works with mixed file sets** (Closes [#18](https://github.com/sebastienfr/picsplit/issues/18))
+- **Bug**: Small groups in GPS mode failed with "no such file or directory" error
+  - **Root cause**: Location folders weren't created before moving files for groups below MinGroupSize
+  - **Impact**: Files in small GPS groups couldn't be moved (error during processing)
+  - **Solution**: Added `os.MkdirAll()` for location folders in `processPictureAtRoot()` and `processMovieAtRoot()`
+  - Files affected: `handler/splitter.go` (lines ~1013 and ~1060)
+- **GPS clustering now works with mixed file sets** (Closes [#18](https://github.com/sebastienfr/picsplit/issues/18) - Part 1)
   - **Root cause**: Strict EXIF fallback mode deleted ALL GPS coordinates when even 1 file lacked EXIF
   - **Impact**: GPS clustering was unusable for iPhone backups (screenshots/videos without EXIF → all GPS lost)
   - GPS coordinates now preserved even when some files use ModTime fallback
@@ -36,32 +61,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Modified: `handler/clustering.go` - improved GPS disabled warning message
 
 ### Changed
+- **BREAKING: Default values updated for better real-world usage**
+  - **Delta**: 30 minutes → **45 minutes** (groups events with longer breaks like lunch)
+  - **GPS Radius**: 2km (2000m) → **15km (15000m)** (better for road trips and countryside)
+  - Files affected: `picsplit.go`, `handler/config.go`, `handler/splitter_test.go`
+  - **Migration**: Use `--delta 30m` or `--gps-radius 2000` to restore old behavior
+  - **Rationale**: 45min delta prevents session splits during lunch breaks; 15km radius suits road trips (use `--gps-radius 2000` for city trips)
 - **EXIF fallback behavior improved** ([#18](https://github.com/sebastienfr/picsplit/issues/18))
   - **Old behavior**: If 1+ files lack EXIF → **all files** fall back to ModTime (GPS lost)
   - **New behavior**: Each file uses its own extracted metadata independently (GPS preserved)
   - DateTime falls back to ModTime only for files without valid EXIF
   - GPS coordinates preserved regardless of DateTime source
   - No longer suppresses GPS clustering when mixed file types present
+- **Progress bar improvements**
+  - No longer requires TTY environment (works in all terminals)
+  - Output written to stderr instead of stdout (avoids pipe conflicts)
+  - Combined progress for large and small groups (e.g., 172 + 664 = 836 total)
+  - Logs changed from `Info` to `Debug` when progress bar is active (cleaner output)
 
-### Added
+### Documentation
 - **GPS coverage analysis logging** ([#18](https://github.com/sebastienfr/picsplit/issues/18))
   - New log message shows GPS availability statistics when `--gps` flag used
   - Format: `GPS coverage analysis: files_with_gps=X total_files=Y coverage_pct=Z%`
   - Helps diagnose why GPS clustering may be disabled (0% coverage)
 - **Enhanced GPS documentation**
   - README section: "GPS with Mixed Files" explains behavior with screenshots/videos
+  - README section: "GPS Reverse Geocoding" with API details and examples
   - Example: iPhone backup organization (photos + screenshots)
-  - Key behaviors documented: selective fallback, GPS preservation
+  - Key behaviors documented: selective fallback, GPS preservation, geocoding cache
+  - CLI reference updated with `--gps-geocoding` / `--gpsg` flag
+  - Table updated with new default values (delta: 45m, GPS radius: 15000m)
 
 ### Technical Details
+- **New config field**: `Config.GPSUseGeocoding` (default: `false`)
+- **New constants**: Geocoding API user agent, rate limit (1s), timeout (3s)
+- **Geocoding cache**: Thread-safe map with `sync.RWMutex` (key: "lat,lon", value: location name)
+- **API functions**: `tryNominatim()` and `tryBigDataCloud()` with context support
+- **Folder name sanitization**: Removes `/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|` characters
 - Removed strict all-or-nothing EXIF fallback (lines 161-165 of `handler/splitter.go`)
 - Files now retain individually extracted `DateTime` and `GPS` fields
 - Warning message changed: `"files used ModTime fallback"` (count shown)
 - GPS clustering activates if **any** files have coordinates (not all-or-nothing)
+- **Test coverage**: Maintained at 78.5% (progress.go at 100%, geo.go at 81.8%)
 
 ### Migration Notes
 
-**Breaking Change 1: GPS EXIF Fallback**
+**Breaking Change 1: Default Values**
+
+This is a **breaking change** from v2.8.0 default values:
+- **Delta**: 30 minutes → **45 minutes**
+- **GPS Radius**: 2km (2000m) → **15km (15000m)**
+
+**Impact**:
+- **Delta 45min**: Events with lunch breaks (30-45min gaps) won't be split into separate folders
+- **GPS 15km**: Road trips and countryside locations will be clustered together (better for travel photos)
+- May create different folder structures than v2.8.0 for same source files
+
+**Migration options**:
+1. **Keep new behavior** (recommended): Better for most real-world use cases
+2. **Restore old behavior**: Use `--delta 30m --gps-radius 2000` flags
+3. **Custom values**: Adjust to your specific use case (e.g., `--gps-radius 5000` for suburban areas)
+
+**Example**:
+```bash
+# v2.9.0 default (45min delta, 15km GPS radius)
+picsplit --gps ./photos
+
+# Restore v2.8.0 behavior
+picsplit --gps --delta 30m --gps-radius 2000 ./photos
+
+# City trips (tighter clustering)
+picsplit --gps --gps-radius 2000 ./photos
+```
+
+**Breaking Change 2: GPS EXIF Fallback**
 
 This is a **breaking change** from v2.8.0 strict EXIF behavior:
 - **v2.8.0**: Mixed EXIF/ModTime files → all forced to ModTime (GPS lost)
@@ -73,7 +146,7 @@ for files that previously had GPS suppressed.
 
 **Recommendation**: Re-run picsplit on backups that failed GPS clustering in v2.8.0.
 
-**Breaking Change 2: MinGroupSize Default**
+**Breaking Change 3: MinGroupSize Default**
 
 This is a **breaking change** from v2.8.0 folder creation behavior:
 - **v2.8.0**: All groups create folders (MinGroupSize = 0 implicitly)
@@ -591,7 +664,8 @@ Running v2.1.0 on v2.0.0-organized folders will create new folders.
 
 ---
 
-[Unreleased]: https://github.com/sebastienfr/picsplit/compare/v2.8.0...HEAD
+[Unreleased]: https://github.com/sebastienfr/picsplit/compare/v2.9.0...HEAD
+[2.9.0]: https://github.com/sebastienfr/picsplit/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/sebastienfr/picsplit/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/sebastienfr/picsplit/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/sebastienfr/picsplit/compare/v2.5.2...v2.6.0
