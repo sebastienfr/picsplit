@@ -280,6 +280,25 @@ picsplit --video-ext dng --use-exif --delta 2h ./wedding-footage
 
 picsplit continuously evolves with new features based on user feedback.
 
+### 🔜 v2.9.0 - Smart Folder Creation (Planned - Q1 2026)
+
+**Goal**: Reduce folder clutter by setting minimum group size threshold.
+
+**Features planned**:
+
+- 🔄 **Minimum group size threshold** ([#17](https://github.com/sebastienfr/picsplit/issues/17))  
+  `--min-group-size 5` prevents creating folders for small photo sets  
+  Groups below threshold stay at parent root for cleaner structure
+
+**Use cases**:
+- iPhone backup cleanup (remove screenshot clutter)
+- Focus folder structure on real events (>= 5 photos)
+- Keep navigation simple with fewer folders
+
+**Feedback welcome!** Help shape this feature by commenting on [issue #17](https://github.com/sebastienfr/picsplit/issues/17).
+
+---
+
 ### ✅ v2.8.0 - Duplicate Management & Code Quality (Released - January 2026)
 
 **Goal**: Finalize duplicate management with automatic move and improve code quality.
