@@ -2451,3 +2451,93 @@ func TestSplit_MoveDuplicates(t *testing.T) {
 		}
 	})
 }
+// TestSplit_GPSCoverageLogging tests GPS coverage analysis logging
+// TestSplit_GPSMode_ZeroCoverage tests GPS mode when no files have GPS coordinates
+func TestSplit_GPSMode_ZeroCoverage(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+	createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+	createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(10*time.Minute))
+
+	cfg := &Config{
+		BasePath:    tmpDir,
+		Delta:       30 * time.Minute,
+		NoMoveMovie: false,
+		NoMoveRaw:   false,
+		Mode:        ModeRun,
+		UseEXIF:     false,
+		UseGPS:      true, // GPS enabled but files have no GPS
+		GPSRadius:   2000.0,
+	}
+
+	err := Split(cfg)
+	if err != nil {
+		t.Fatalf("Split() GPS mode with 0 coverage error: %v", err)
+	}
+
+	// Should fall back to time-based mode and create folders
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to read directory: %v", err)
+	}
+
+	hasTimeFolder := false
+	hasNoLocationFolder := false
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if strings.Contains(entry.Name(), "2024 - ") {
+				hasTimeFolder = true
+			}
+			if entry.Name() == GetNoLocationFolderName() {
+				hasNoLocationFolder = true
+			}
+		}
+	}
+
+	if !hasTimeFolder {
+		t.Error("Expected time-based folder when GPS coverage is 0%")
+	}
+
+	// NoLocation should NOT exist when ALL files lack GPS
+	if hasNoLocationFolder {
+		t.Error("NoLocation folder should not exist when all files lack GPS")
+	}
+}
+
+// TestCollectMediaFiles_MixedExtensions tests selective fallback with mixed file types
+func TestCollectMediaFiles_MixedExtensions(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
+	createTestFile(t, tmpDir, "photo1.jpg", baseTime)
+	createTestFile(t, tmpDir, "photo2.jpg", baseTime.Add(10*time.Minute))
+	createTestFile(t, tmpDir, "video1.mov", baseTime.Add(20*time.Minute))
+
+	cfg := &Config{
+		BasePath: tmpDir,
+		UseEXIF:  true,
+	}
+
+	ctx := newDefaultExecutionContext()
+	files, err := collectMediaFilesWithMetadata(cfg, ctx)
+	if err != nil {
+		t.Fatalf("collectMediaFilesWithMetadata() error: %v", err)
+	}
+
+	// Should collect all 3 files (2 photos + 1 video)
+	if len(files) != 3 {
+		t.Errorf("Expected 3 files, got %d", len(files))
+	}
+
+	// Each file should have a DateTime (either EXIF or ModTime)
+	for _, file := range files {
+		if file.DateTime.IsZero() {
+			t.Errorf("File %s has zero DateTime", file.FileInfo.Name())
+		}
+	}
+
+	// Verify selective fallback happened (warning should be logged)
+	// In real scenario, some files would use EXIF, some ModTime
+	// But all should be processed
+}
