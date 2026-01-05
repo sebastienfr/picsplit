@@ -623,9 +623,30 @@ func splitInternal(cfg *Config) error {
 			"location_clusters", len(locationClusters),
 			"files_without_gps", len(filesWithoutGPS))
 
-		// Process each location cluster
-		for _, cluster := range locationClusters {
-			locationName := FormatLocationName(cluster.Centroid)
+		// Pre-geocode all locations if geocoding is enabled
+		// This shows progress and prepares location names before processing
+		locationNames := make(map[int]string)
+		if cfg.GPSUseGeocoding && len(locationClusters) > 0 {
+			geocodingBar := createProgressBar(len(locationClusters), "Geocoding locations", cfg.LogLevel, cfg.LogFormat)
+
+			for i, cluster := range locationClusters {
+				locationNames[i] = ReverseGeocode(cluster.Centroid.Lat, cluster.Centroid.Lon, cfg.GPSUseGeocoding)
+
+				if geocodingBar != nil {
+					_ = geocodingBar.Add(1)
+				}
+			}
+		}
+
+		// Now process each location cluster (geocoding already done)
+		for i, cluster := range locationClusters {
+			var locationName string
+			if cfg.GPSUseGeocoding {
+				locationName = locationNames[i]
+			} else {
+				locationName = FormatLocationName(cluster.Centroid)
+			}
+
 			slog.Debug("processing location cluster", "location", locationName, "files", len(cluster.Files))
 
 			// Group by time within this location
@@ -717,15 +738,26 @@ func splitInternal(cfg *Config) error {
 	// Track groups created (only large groups create folders)
 	stats.GroupsCreated = len(largeGroups)
 
-	// 4. Process large groups (create folders) with progress bar
-	bar := createProgressBar(len(largeGroups), "Processing groups", cfg.LogLevel, cfg.LogFormat)
+	// 4. Process ALL groups (large + small) with combined progress bar
+	totalGroups := len(largeGroups) + len(smallGroups)
+	bar := createProgressBar(totalGroups, "Processing groups", cfg.LogLevel, cfg.LogFormat)
 
+	// Process large groups (create folders)
 	for i, group := range largeGroups {
-		slog.Info("processing group",
-			"current", i+1,
-			"total", len(largeGroups),
-			"folder", group.folderName,
-			"files", len(group.files))
+		// Use Debug level when progress bar is active to avoid visual interference
+		if bar != nil {
+			slog.Debug("processing group",
+				"current", i+1,
+				"total", totalGroups,
+				"folder", group.folderName,
+				"files", len(group.files))
+		} else {
+			slog.Info("processing group",
+				"current", i+1,
+				"total", totalGroups,
+				"folder", group.folderName,
+				"files", len(group.files))
+		}
 
 		if err := processGroup(cfg, ctx, group, stats, detector); err != nil {
 			// Track error at group level
@@ -752,17 +784,26 @@ func splitInternal(cfg *Config) error {
 
 	// 5. Process small groups (leave files at root)
 	if len(smallGroups) > 0 {
-		slog.Info("processing small groups at root",
-			"count", len(smallGroups),
-			"total_files", stats.RootFilesCount)
+		if bar == nil {
+			slog.Info("processing small groups at root",
+				"count", len(smallGroups),
+				"total_files", stats.RootFilesCount)
+		}
 
-		for _, group := range smallGroups {
+		for i, group := range smallGroups {
 			// Extract destination root from folder name
 			// For GPS mode: "Paris/2024-0615-1200" → root = "Paris"
 			// For time mode: "2024-0615-1200" → root = "" (basePath root)
 			destinationRoot := ""
 			if cfg.UseGPS && filepath.Dir(group.folderName) != "." {
 				destinationRoot = filepath.Dir(group.folderName)
+			}
+
+			if bar != nil {
+				slog.Debug("processing small group at root",
+					"current", len(largeGroups)+i+1,
+					"total", totalGroups,
+					"files", len(group.files))
 			}
 
 			// Process each file in small group
@@ -838,6 +879,11 @@ func splitInternal(cfg *Config) error {
 					}
 					stats.ProcessedFiles++
 				}
+			}
+
+			// Update progress bar after processing each small group
+			if bar != nil {
+				_ = bar.Add(1)
 			}
 		}
 	}
@@ -991,6 +1037,14 @@ func processPictureAtRoot(cfg *Config, ctx *executionContext, fi os.FileInfo, de
 
 	destDir := destinationRoot
 
+	// Create destination root folder if it doesn't exist (GPS mode)
+	if destinationRoot != "" && cfg.Mode != ModeDryRun {
+		destRootPath := filepath.Join(cfg.BasePath, destinationRoot)
+		if err := os.MkdirAll(destRootPath, permDirectory); err != nil {
+			return fmt.Errorf("failed to create location folder %s: %w", destRootPath, err)
+		}
+	}
+
 	// Special handling for RAW files
 	if ctx.isRaw(fi.Name()) && !cfg.NoMoveRaw {
 		baseRawDir := cfg.BasePath
@@ -1029,6 +1083,14 @@ func processMovieAtRoot(cfg *Config, fi os.FileInfo, destinationRoot string) err
 	slog.Debug("processing movie at root", "file", fi.Name(), "dest_root", destinationRoot)
 
 	destDir := destinationRoot
+
+	// Create destination root folder if it doesn't exist (GPS mode)
+	if destinationRoot != "" && cfg.Mode != ModeDryRun {
+		destRootPath := filepath.Join(cfg.BasePath, destinationRoot)
+		if err := os.MkdirAll(destRootPath, permDirectory); err != nil {
+			return fmt.Errorf("failed to create location folder %s: %w", destRootPath, err)
+		}
+	}
 
 	// Move to separate mov folder if needed
 	if !cfg.NoMoveMovie {

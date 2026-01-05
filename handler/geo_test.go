@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"math"
+	"sync"
 	"testing"
 )
 
@@ -269,4 +271,235 @@ func TestDegreesToRadians(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSanitizeFolderName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "valid name with spaces",
+			input:    "Paris - France - Ile de France",
+			expected: "Paris - France - Ile de France",
+		},
+		{
+			name:     "name with forward slash",
+			input:    "Paris/France",
+			expected: "Paris-France",
+		},
+		{
+			name:     "name with backslash",
+			input:    "Paris\\France",
+			expected: "Paris-France",
+		},
+		{
+			name:     "name with colon",
+			input:    "Paris:France",
+			expected: "Paris-France",
+		},
+		{
+			name:     "name with asterisk",
+			input:    "Paris*France",
+			expected: "ParisFrance",
+		},
+		{
+			name:     "name with question mark",
+			input:    "Paris?France",
+			expected: "ParisFrance",
+		},
+		{
+			name:     "name with quotes",
+			input:    "Paris\"France\"",
+			expected: "ParisFrance",
+		},
+		{
+			name:     "name with angle brackets",
+			input:    "Paris<France>",
+			expected: "ParisFrance",
+		},
+		{
+			name:     "name with pipe",
+			input:    "Paris|France",
+			expected: "Paris-France",
+		},
+		{
+			name:     "multiple invalid characters",
+			input:    "Paris / France \\ Test : 2024 * ?",
+			expected: "Paris - France - Test - 2024",
+		},
+		{
+			name:     "leading and trailing spaces",
+			input:    "  Paris - France  ",
+			expected: "Paris - France",
+		},
+		{
+			name:     "already sanitized",
+			input:    "48.8566N-2.3522E - France - Paris",
+			expected: "48.8566N-2.3522E - France - Paris",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeFolderName(tt.input)
+			if result != tt.expected {
+				t.Errorf("sanitizeFolderName(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestReverseGeocode_Cache(t *testing.T) {
+	// Reset cache before test
+	geocodeCacheMutex.Lock()
+	geocodeCache = make(map[string]string)
+	geocodeCacheMutex.Unlock()
+
+	// Paris coordinates
+	lat, lon := 48.8566, 2.3522
+
+	// First call - will attempt geocoding (may succeed or fallback to coords)
+	result1 := ReverseGeocode(lat, lon, true)
+
+	// Second call - should use cache (same result)
+	result2 := ReverseGeocode(lat, lon, true)
+
+	if result1 != result2 {
+		t.Errorf("ReverseGeocode cache not working: first=%q, second=%q", result1, result2)
+	}
+
+	// Result should at least contain coordinates
+	expectedCoords := "48.8566N-2.3522E"
+	if result1[:len(expectedCoords)] != expectedCoords {
+		t.Errorf("ReverseGeocode result should start with coordinates: got %q", result1)
+	}
+}
+
+func TestReverseGeocode_Fallback(t *testing.T) {
+	// Reset cache
+	geocodeCacheMutex.Lock()
+	geocodeCache = make(map[string]string)
+	geocodeCacheMutex.Unlock()
+
+	// Use invalid coordinates that will fail geocoding
+	lat, lon := 0.0, 0.0
+
+	result := ReverseGeocode(lat, lon, true)
+
+	// Should at least return coordinates format
+	expectedCoords := "0.0000N-0.0000E"
+	if !containsString(result, expectedCoords) {
+		t.Errorf("ReverseGeocode fallback should contain coordinates: got %q", result)
+	}
+}
+
+func TestReverseGeocode_Disabled(t *testing.T) {
+	// When geocoding is disabled, should return only coordinates
+	lat, lon := 48.8566, 2.3522
+
+	result := ReverseGeocode(lat, lon, false)
+
+	expected := "48.8566N-2.3522E"
+	if result != expected {
+		t.Errorf("ReverseGeocode with geocoding disabled should return only coordinates: got %q, want %q", result, expected)
+	}
+}
+
+func TestGetCachedLocation(t *testing.T) {
+	// Reset cache
+	geocodeCacheMutex.Lock()
+	geocodeCache = make(map[string]string)
+	geocodeCacheMutex.Unlock()
+
+	key := "48.8566,2.3522"
+	value := "48.8566N-2.3522E - France - Paris"
+
+	// Not in cache yet
+	if _, found := getCachedLocation(key); found {
+		t.Error("getCachedLocation should return false for non-existent key")
+	}
+
+	// Add to cache
+	setCachedLocation(key, value)
+
+	// Should now be in cache
+	cached, found := getCachedLocation(key)
+	if !found {
+		t.Error("getCachedLocation should return true for cached key")
+	}
+	if cached != value {
+		t.Errorf("getCachedLocation returned %q, want %q", cached, value)
+	}
+}
+
+// Helper function for string contains
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || s == substr)
+}
+
+func TestTryNominatim_InvalidCoordinates(t *testing.T) {
+	ctx := context.Background()
+
+	// Test with invalid coordinates (should return nil or handle gracefully)
+	result := tryNominatim(ctx, 999.0, 999.0)
+
+	// Should handle invalid coordinates gracefully (return nil or valid response)
+	// We don't assert the result as it depends on the API behavior
+	_ = result
+}
+
+func TestTryBigDataCloud_InvalidCoordinates(t *testing.T) {
+	ctx := context.Background()
+
+	// Test with invalid coordinates
+	result := tryBigDataCloud(ctx, 999.0, 999.0)
+
+	// Should handle invalid coordinates gracefully
+	_ = result
+}
+
+func TestTryNominatim_CanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// Should return nil when context is canceled
+	result := tryNominatim(ctx, 48.8566, 2.3522)
+
+	if result != nil {
+		t.Error("tryNominatim should return nil with canceled context")
+	}
+}
+
+func TestTryBigDataCloud_CanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// Should return nil when context is canceled
+	result := tryBigDataCloud(ctx, 48.8566, 2.3522)
+
+	if result != nil {
+		t.Error("tryBigDataCloud should return nil with canceled context")
+	}
+}
+
+func TestReverseGeocode_ConcurrentAccess(t *testing.T) {
+	// Reset cache
+	geocodeCacheMutex.Lock()
+	geocodeCache = make(map[string]string)
+	geocodeCacheMutex.Unlock()
+
+	// Test concurrent access to cache (should not panic)
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			lat := 48.8566 + float64(idx)*0.001
+			lon := 2.3522 + float64(idx)*0.001
+			_ = ReverseGeocode(lat, lon, false) // Use false to avoid API calls
+		}(i)
+	}
+	wg.Wait()
 }

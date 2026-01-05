@@ -51,7 +51,7 @@ picsplit moves files on your filesystem. While extensively tested, you should NE
 ## ⭐ Key Features
 
 - 🕐 **Smart Time-Based Grouping**  
-  Groups photos by shooting sessions using configurable time gaps (default: 30min)
+  Groups photos by shooting sessions using configurable time gaps (default: 45min)
 
 - 📍 **GPS Location Clustering**  
   Organizes by geographic location first, then by time within each location (DBSCAN algorithm)
@@ -502,11 +502,11 @@ picsplit --nomvmov --nomvraw ./photos
 Group photos by where they were taken, then by when.
 
 ```bash
-# Enable GPS mode with default 2km radius
+# Enable GPS mode with default 15km radius
 picsplit --gps ./travel-photos
 
-# Larger radius for countryside/road trips (5km)
-picsplit --gps --gps-radius 5000 ./roadtrip
+# Smaller radius for city trips (2km)
+picsplit --gps --gps-radius 2000 ./city-trip
 
 # Combine with custom time gap
 picsplit --gps --delta 2h ./photos
@@ -515,13 +515,35 @@ picsplit --gps --delta 2h ./photos
 **Output structure:**
 ```
 photos/
-├── 48.8566N-2.3522E/          # Paris
+├── 48.8566N-2.3522E/          # GPS coordinates
 │   └── 2024 - 0615 - 1030/
 └── NoLocation/                 # Files without GPS
     └── 2024 - 0616 - 0900/
 ```
 
-**Note**: `NoLocation/` only appears when some files have GPS and others don't. If all files lack GPS, time-based folders are created at root level.
+**With reverse geocoding** (v2.9.0+):
+```bash
+picsplit --gps --gps-geocoding ./travel-photos
+# or short form:
+picsplit --gps --gpsg ./travel-photos
+```
+
+Output with location names:
+```
+photos/
+├── 48.8566N-2.3522E - France - Paris/    # Human-readable names
+│   └── 2024 - 0615 - 1030/
+├── 51.5074N-0.1278W - United Kingdom - London/
+│   └── 2024 - 0616 - 1200/
+└── NoLocation/
+    └── 2024 - 0617 - 0900/
+```
+
+**Note**: 
+- Reverse geocoding requires internet connection and is slower due to API rate limits (~1 request/second)
+- Uses OpenStreetMap Nominatim API (free, no API key required)
+- Falls back to coordinates if geocoding fails or times out
+- `NoLocation/` only appears when some files have GPS and others don't. If all files lack GPS, time-based folders are created at root level.
 
 **GPS with Mixed Files** (v2.9.0+):
 
@@ -934,9 +956,10 @@ rm -rf ./photos/duplicates/
 | `--version` | `-v` | - | Display version information |
 | `--mode` | `-m` | `run` | Execution mode: `validate` (fast check), `dryrun` (simulate), `run` (execute) |
 | `--use-exif` | `-ue` | `true` | Use EXIF metadata for dates |
-| `--delta` | `-d` | `30m` | Time gap between sessions (e.g., `1h`, `45m`) |
+| `--delta` | `-d` | `45m` | Time gap between sessions (e.g., `1h`, `30m`) |
 | `--gps` | `-g` | `false` | Enable GPS location clustering |
-| `--gps-radius` | `-gr` | `2000` | GPS clustering radius in meters |
+| `--gps-radius` | `-gr` | `15000` | GPS clustering radius in meters (15km) |
+| `--gps-geocoding` | `--gpsg` | `false` | Use reverse geocoding for GPS location names (requires internet, slower due to API rate limits) |
 | `--continue-on-error` | `--coe` | `false` | Continue processing despite errors (collect all errors instead of stopping at first failure) |
 | `--cleanup-empty-dirs` | `--ced` | `false` | Automatically remove empty directories after processing |
 | `--cleanup-ignore` | `--ci` | - | Additional files to ignore when checking if directory is empty (comma-separated, e.g., `.picasa.ini,.nomedia`) |

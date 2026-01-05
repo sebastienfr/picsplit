@@ -1146,8 +1146,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("expected BasePath %q, got %q", basePath, cfg.BasePath)
 	}
 
-	if cfg.Delta != 30*time.Minute {
-		t.Errorf("expected Delta 30min, got %v", cfg.Delta)
+	if cfg.Delta != 45*time.Minute {
+		t.Errorf("expected Delta 45min, got %v", cfg.Delta)
 	}
 
 	if cfg.NoMoveMovie {

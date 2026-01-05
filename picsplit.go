@@ -45,7 +45,10 @@ var (
 	useGPS = false
 
 	// gpsRadius -gps-radius : GPS clustering radius in meters
-	gpsRadius = 2000.0
+	gpsRadius = 15000.0
+
+	// gpsUseGeocoding -gps-geocoding : use reverse geocoding for GPS location names (v2.9.0+)
+	gpsUseGeocoding = false
 
 	// customPhotoExts -pext : additional photo extensions (v2.5.0+)
 	customPhotoExts string
@@ -92,7 +95,7 @@ var (
 const (
 	// Default configuration values
 	defaultPath      = "."
-	defaultDelta     = 30 * time.Minute
+	defaultDelta     = 45 * time.Minute
 	defaultLogLevel  = "info"
 	defaultLogFormat = "text"
 
@@ -445,9 +448,15 @@ func main() {
 		&cli.Float64Flag{
 			Name:        "gps-radius",
 			Aliases:     []string{"gr"},
-			Value:       2000.0,
+			Value:       15000.0,
 			Destination: &gpsRadius,
-			Usage:       "GPS clustering radius in meters (default: 2000m = 2km)",
+			Usage:       "GPS clustering radius in meters (default: 15000m = 15km)",
+		},
+		&cli.BoolFlag{
+			Name:        "gps-geocoding",
+			Aliases:     []string{"gpsg"},
+			Destination: &gpsUseGeocoding,
+			Usage:       "Use reverse geocoding for GPS location names (requires internet, slower due to API rate limits)",
 		},
 		&cli.StringFlag{
 			Name:        "photo-ext",
@@ -616,6 +625,7 @@ func main() {
 			UseEXIF:           useEXIF,
 			UseGPS:            useGPS,
 			GPSRadius:         gpsRadius,
+			GPSUseGeocoding:   gpsUseGeocoding,
 			CustomPhotoExts:   photoExts,
 			CustomVideoExts:   videoExts,
 			CustomRawExts:     rawExts,

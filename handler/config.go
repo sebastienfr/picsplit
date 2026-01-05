@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	defaultGPSRadiusMeters = 2000.0 // Default radius for GPS clustering: 2km
+	defaultGPSRadiusMeters = 15000.0 // Default radius for GPS clustering: 15km
 )
 
 // ExecutionMode defines the mode of execution
@@ -21,13 +21,14 @@ const (
 
 // Config holds all configuration for the split operation
 type Config struct {
-	BasePath    string
-	Delta       time.Duration
-	NoMoveMovie bool
-	NoMoveRaw   bool
-	UseEXIF     bool
-	UseGPS      bool
-	GPSRadius   float64 // Radius in meters for GPS clustering
+	BasePath        string
+	Delta           time.Duration
+	NoMoveMovie     bool
+	NoMoveRaw       bool
+	UseEXIF         bool
+	UseGPS          bool
+	GPSRadius       float64 // Radius in meters for GPS clustering
+	GPSUseGeocoding bool    // Use reverse geocoding for GPS location names (requires internet)
 
 	// Custom extensions (v2.5.0+)
 	// These are ADDITIVE to the default extensions
@@ -104,12 +105,13 @@ func (c *Config) Validate() error {
 func DefaultConfig(basePath string) *Config {
 	return &Config{
 		BasePath:          basePath,
-		Delta:             30 * time.Minute,
+		Delta:             45 * time.Minute,
 		NoMoveMovie:       false,
 		NoMoveRaw:         false,
 		UseEXIF:           true,
 		UseGPS:            false,                  // GPS clustering disabled by default (opt-in)
-		GPSRadius:         defaultGPSRadiusMeters, // 2000m = 2km
+		GPSRadius:         defaultGPSRadiusMeters, // 15000m = 15km
+		GPSUseGeocoding:   false,                  // Reverse geocoding disabled by default (opt-in, requires internet)
 		SeparateOrphanRaw: true,                   // Enabled by default (v2.6.0+)
 		ContinueOnError:   false,                  // Stop at first failure by default (v2.8.0+)
 		Mode:              ModeRun,                // Real execution by default (v2.8.0+)
