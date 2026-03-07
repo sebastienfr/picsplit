@@ -77,11 +77,9 @@ Always use `make` targets — do not run go commands directly unless necessary.
 - **Release:** GoReleaser on tag push (`v*.*.*`), builds for linux/darwin/windows (amd64/arm64)
 - **Main branch:** `master` (for PRs), development on `main`
 
-## Known Issues (from code review)
+## Known Issues (deferred from v2.10.0 code review)
 
-- `isRawPaired` and `findAssociatedJPEG` use hardcoded photo extensions instead of `executionContext` — custom extensions are ignored for RAW pairing
-- Duplicate detection logic is copy-pasted between `processGroup` and small-groups loop in `splitInternal`
-- `ExtractMetadata` opens files twice (once for date, once for GPS) — should decode EXIF once
-- Geocoding uses global mutable state (cache + rate limiter) — should be encapsulated in a struct
-- No symlink handling in file operations
-- No source/target overlap detection in merge command
+- [#23](https://github.com/sebastienfr/picsplit/issues/23): splitter.go should be split into focused files
+- [#24](https://github.com/sebastienfr/picsplit/issues/24): Geocoding uses global mutable state — should be encapsulated in a struct
+- [#35](https://github.com/sebastienfr/picsplit/issues/35): Config struct fields could be grouped into sub-structs
+- [#40](https://github.com/sebastienfr/picsplit/issues/40): Migrate to Go 1.26
