@@ -427,15 +427,30 @@ func TestValidateMergeFolders_OverlapDetection(t *testing.T) {
 }
 
 func TestIsSafeToRemoveAll(t *testing.T) {
-	tests := []struct {
+	type tc struct {
 		name      string
 		path      string
 		wantError bool
-	}{
+	}
+
+	tests := []tc{
 		{"Root directory", "/", true},
-		{"Shallow path", "/usr", true},
-		{"Two components", "/usr/local", true},
-		{"Deep enough path", "/usr/local/bin", false},
+	}
+
+	// Path component counting depends on OS: on Windows, "/usr" resolves
+	// to a deep absolute path (e.g. C:\Users\runner\usr), so use native paths.
+	if runtime.GOOS == "windows" {
+		tests = append(tests,
+			tc{"Shallow path", `C:\Windows`, true},
+			tc{"Two components", `C:\Windows\System32`, true},
+			tc{"Deep enough path", `C:\Users\test\photos`, false},
+		)
+	} else {
+		tests = append(tests,
+			tc{"Shallow path", "/usr", true},
+			tc{"Two components", "/usr/local", true},
+			tc{"Deep enough path", "/usr/local/bin", false},
+		)
 	}
 
 	for _, tt := range tests {
