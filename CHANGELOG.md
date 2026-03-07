@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.11.0] - 2026-03-07
+
+### Refactored
+- **Split splitter.go into focused files** ([#23](https://github.com/sebastienfr/picsplit/issues/23))
+  - `splitter.go` reduced from ~1115 to ~390 lines (orchestration only)
+  - New `grouping.go`: file collection, sorting, time-based grouping
+  - New `organized.go`: organized folder detection, orphan RAW refresh
+  - New `processing.go`: file processing, moves, duplicate handling
+  - Extracted `finalizeProcessing()` to eliminate duplicate defer cleanup blocks
+  - Extracted `isDateFormattedName()` and `isSpecialFolder()` helpers
+  - Collapsed duplicate no-GPS group processing loop
+  - Deduplicated `GroupLocationByTime` to reuse `groupFilesByGaps`
+- **Encapsulated geocoding into GeocodingService struct** ([#24](https://github.com/sebastienfr/picsplit/issues/24))
+  - Replaced global mutable state (package-level vars + mutexes) with `GeocodingService` struct
+  - `NewGeocodingService()` constructor with shared `http.Client`
+- **Moved `permDirectory` constant** from `merger.go` to `config.go` (shared across package)
+- **Replaced magic numbers** with named constants (`dateFormatLength`, `organizedFolderThreshold`)
+
+### Security
+- **Bounded HTTP response bodies** on both Nominatim and BigDataCloud with `io.LimitReader` (64KB cap)
+- **User-Agent header** added to BigDataCloud requests (was missing, already present on Nominatim)
+- **Enhanced `sanitizeFolderName`** — filters null bytes, control characters, and enforces max length with UTF-8-safe rune-boundary truncation
+- **Symlink protection** added to `collectMediaFilesWithMetadata`
+
+### Performance
+- **HTTP client reuse** in `tryBigDataCloud` — uses `gs.client` instead of per-call allocation
+- **`strings.NewReplacer` hoisted** to package-level `folderNameReplacer`
+- **`findOrCreateFolder` simplified** — `os.MkdirAll` replaces redundant Stat+Mkdir+Stat pattern
+- **Slice pre-allocation** for `mediaFiles` in `collectMediaFilesWithMetadata`
+
+### Fixed
+- **Consistent error handling** — `stats.AddError()` used everywhere instead of direct slice append
+- **Consistent dry-run logging** for orphan RAW moves in `organized.go`
+
 ## [2.10.0] - 2026-03-07
 
 ### Security
