@@ -12,6 +12,13 @@ var Version = "dev"
 
 const (
 	defaultGPSRadiusMeters = 15000.0 // Default radius for GPS clustering: 15km
+
+	// File permissions (Unix octal notation)
+	// permDirectory: 0755 = rwxr-xr-x
+	// - Owner (7): read + write + execute = full access
+	// - Group (5): read + execute = read and traverse directory
+	// - Others (5): read + execute = read and traverse directory
+	permDirectory = 0755
 )
 
 // ExecutionMode defines the mode of execution

@@ -340,6 +340,26 @@ func TestSanitizeFolderName(t *testing.T) {
 			input:    "48.8566N-2.3522E - France - Paris",
 			expected: "48.8566N-2.3522E - France - Paris",
 		},
+		{
+			name:     "null bytes removed",
+			input:    "Paris\x00France",
+			expected: "ParisFrance",
+		},
+		{
+			name:     "control characters removed",
+			input:    "Paris\x01\x02France\x1F",
+			expected: "ParisFrance",
+		},
+		{
+			name:     "truncated to max length",
+			input:    strings.Repeat("A", 250),
+			expected: strings.Repeat("A", 200),
+		},
+		{
+			name:     "truncated at rune boundary preserves UTF-8",
+			input:    strings.Repeat("é", 150), // 'é' is 2 bytes, 150 runes = 300 bytes
+			expected: strings.Repeat("é", 100), // truncated to fit within 200 bytes
+		},
 	}
 
 	for _, tt := range tests {
@@ -353,19 +373,16 @@ func TestSanitizeFolderName(t *testing.T) {
 }
 
 func TestReverseGeocode_Cache(t *testing.T) {
-	// Reset cache before test
-	geocodeCacheMutex.Lock()
-	geocodeCache = make(map[string]string)
-	geocodeCacheMutex.Unlock()
+	gs := NewGeocodingService()
 
 	// Paris coordinates
 	lat, lon := 48.8566, 2.3522
 
 	// First call - will attempt geocoding (may succeed or fallback to coords)
-	result1 := ReverseGeocode(lat, lon, true)
+	result1 := gs.ReverseGeocode(lat, lon, true)
 
 	// Second call - should use cache (same result)
-	result2 := ReverseGeocode(lat, lon, true)
+	result2 := gs.ReverseGeocode(lat, lon, true)
 
 	if result1 != result2 {
 		t.Errorf("ReverseGeocode cache not working: first=%q, second=%q", result1, result2)
@@ -379,15 +396,12 @@ func TestReverseGeocode_Cache(t *testing.T) {
 }
 
 func TestReverseGeocode_Fallback(t *testing.T) {
-	// Reset cache
-	geocodeCacheMutex.Lock()
-	geocodeCache = make(map[string]string)
-	geocodeCacheMutex.Unlock()
+	gs := NewGeocodingService()
 
 	// Use invalid coordinates that will fail geocoding
 	lat, lon := 0.0, 0.0
 
-	result := ReverseGeocode(lat, lon, true)
+	result := gs.ReverseGeocode(lat, lon, true)
 
 	// Should at least return coordinates format
 	expectedCoords := "0.0000N-0.0000E"
@@ -397,10 +411,12 @@ func TestReverseGeocode_Fallback(t *testing.T) {
 }
 
 func TestReverseGeocode_Disabled(t *testing.T) {
+	gs := NewGeocodingService()
+
 	// When geocoding is disabled, should return only coordinates
 	lat, lon := 48.8566, 2.3522
 
-	result := ReverseGeocode(lat, lon, false)
+	result := gs.ReverseGeocode(lat, lon, false)
 
 	expected := "48.8566N-2.3522E"
 	if result != expected {
@@ -409,24 +425,21 @@ func TestReverseGeocode_Disabled(t *testing.T) {
 }
 
 func TestGetCachedLocation(t *testing.T) {
-	// Reset cache
-	geocodeCacheMutex.Lock()
-	geocodeCache = make(map[string]string)
-	geocodeCacheMutex.Unlock()
+	gs := NewGeocodingService()
 
 	key := "48.8566,2.3522"
 	value := "48.8566N-2.3522E - France - Paris"
 
 	// Not in cache yet
-	if _, found := getCachedLocation(key); found {
+	if _, found := gs.getCachedLocation(key); found {
 		t.Error("getCachedLocation should return false for non-existent key")
 	}
 
 	// Add to cache
-	setCachedLocation(key, value)
+	gs.setCachedLocation(key, value)
 
 	// Should now be in cache
-	cached, found := getCachedLocation(key)
+	cached, found := gs.getCachedLocation(key)
 	if !found {
 		t.Error("getCachedLocation should return true for cached key")
 	}
@@ -436,29 +449,32 @@ func TestGetCachedLocation(t *testing.T) {
 }
 
 func TestTryNominatim_InvalidCoordinates(t *testing.T) {
+	gs := NewGeocodingService()
 	ctx := context.Background()
 
-	result := tryNominatim(ctx, 999.0, 999.0)
+	result := gs.tryNominatim(ctx, 999.0, 999.0)
 	if result != nil {
 		t.Error("tryNominatim with invalid coordinates should return nil")
 	}
 }
 
 func TestTryBigDataCloud_InvalidCoordinates(t *testing.T) {
+	gs := NewGeocodingService()
 	ctx := context.Background()
 
-	result := tryBigDataCloud(ctx, 999.0, 999.0)
+	result := gs.tryBigDataCloud(ctx, 999.0, 999.0)
 	if result != nil {
 		t.Error("tryBigDataCloud with invalid coordinates should return nil")
 	}
 }
 
 func TestTryNominatim_CanceledContext(t *testing.T) {
+	gs := NewGeocodingService()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
 	// Should return nil when context is canceled
-	result := tryNominatim(ctx, 48.8566, 2.3522)
+	result := gs.tryNominatim(ctx, 48.8566, 2.3522)
 
 	if result != nil {
 		t.Error("tryNominatim should return nil with canceled context")
@@ -466,11 +482,12 @@ func TestTryNominatim_CanceledContext(t *testing.T) {
 }
 
 func TestTryBigDataCloud_CanceledContext(t *testing.T) {
+	gs := NewGeocodingService()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
 	// Should return nil when context is canceled
-	result := tryBigDataCloud(ctx, 48.8566, 2.3522)
+	result := gs.tryBigDataCloud(ctx, 48.8566, 2.3522)
 
 	if result != nil {
 		t.Error("tryBigDataCloud should return nil with canceled context")
@@ -478,10 +495,7 @@ func TestTryBigDataCloud_CanceledContext(t *testing.T) {
 }
 
 func TestReverseGeocode_ConcurrentAccess(t *testing.T) {
-	// Reset cache
-	geocodeCacheMutex.Lock()
-	geocodeCache = make(map[string]string)
-	geocodeCacheMutex.Unlock()
+	gs := NewGeocodingService()
 
 	// Test concurrent access to cache (should not panic)
 	var wg sync.WaitGroup
@@ -491,7 +505,7 @@ func TestReverseGeocode_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			lat := 48.8566 + float64(idx)*0.001
 			lon := 2.3522 + float64(idx)*0.001
-			_ = ReverseGeocode(lat, lon, false) // Use false to avoid API calls
+			_ = gs.ReverseGeocode(lat, lon, false) // Use false to avoid API calls
 		}(i)
 	}
 	wg.Wait()

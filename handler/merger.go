@@ -18,15 +18,6 @@ const (
 	conflictQuit      = "quit"      // Abort merge operation
 	conflictApplyAll  = "all"       // Apply choice to all remaining conflicts
 
-	// File permissions (Unix octal notation)
-	// permDirectory: 0755 = rwxr-xr-x
-	// Binary representation: 111 101 101
-	// - Owner (7 = 111 binary): read(4) + write(2) + execute(1) = full access
-	// - Group (5 = 101 binary): read(4) + execute(1) = read and traverse directory
-	// - Others (5 = 101 binary): read(4) + execute(1) = read and traverse directory
-	// Used for creating directories throughout the handler package
-	permDirectory = 0755
-
 	// minRemoveAllPathComponents is the minimum number of path components
 	// required for os.RemoveAll to proceed, preventing accidental deletion
 	// of root or shallow system directories.

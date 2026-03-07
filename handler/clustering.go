@@ -94,34 +94,22 @@ func ClusterByLocation(files []FileMetadata, radiusMeters float64) ([]LocationCl
 	return clusters, filesWithoutGPS
 }
 
-// GroupLocationByTime groups files from a location cluster by time gaps
+// GroupLocationByTime groups files from a location cluster by time gaps.
+// Reuses the same gap-based grouping algorithm as groupFilesByGaps.
 func GroupLocationByTime(cluster LocationCluster, delta time.Duration) [][]FileMetadata {
 	if len(cluster.Files) == 0 {
 		return nil
 	}
 
-	// Sort by date/time
+	// Sort by date/time, then group using shared algorithm
 	sortFilesByDateTime(cluster.Files)
+	fileGroups := groupFilesByGaps(cluster.Files, delta)
 
-	// Group by time gaps (same algorithm as groupFilesByGaps)
-	groups := [][]FileMetadata{}
-	currentGroup := []FileMetadata{cluster.Files[0]}
-
-	for i := 1; i < len(cluster.Files); i++ {
-		gap := cluster.Files[i].DateTime.Sub(cluster.Files[i-1].DateTime)
-
-		if gap > delta {
-			// Gap too large, create new group
-			groups = append(groups, currentGroup)
-			currentGroup = []FileMetadata{cluster.Files[i]}
-		} else {
-			// Same group
-			currentGroup = append(currentGroup, cluster.Files[i])
-		}
+	// Extract file slices from fileGroup wrappers
+	groups := make([][]FileMetadata, len(fileGroups))
+	for i, fg := range fileGroups {
+		groups[i] = fg.files
 	}
-
-	// Add last group
-	groups = append(groups, currentGroup)
 
 	slog.Debug("location split into time-based groups",
 		"location", FormatLocationName(cluster.Centroid),

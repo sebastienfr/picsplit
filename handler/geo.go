@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 const (
@@ -88,22 +90,17 @@ func degreesToRadians(degrees float64) float64 {
 }
 
 const (
-	geocodingTimeout   = 3 * time.Second
-	nominatimRateLimit = 1 * time.Second // Nominatim requires max 1 req/s
-	nominatimURL       = "https://nominatim.openstreetmap.org/reverse"
-	bigDataCloudURL    = "https://api.bigdatacloud.net/data/reverse-geocode-client"
+	geocodingTimeout      = 3 * time.Second
+	nominatimRateLimit    = 1 * time.Second // Nominatim requires max 1 req/s
+	nominatimURL          = "https://nominatim.openstreetmap.org/reverse"
+	bigDataCloudURL       = "https://api.bigdatacloud.net/data/reverse-geocode-client"
+	maxGeocodingBodyBytes = 64 * 1024 // 64 KB max response body
+	maxFolderNameLength   = 200       // Max sanitized folder name length
 )
 
 func geocodingUserAgent() string {
 	return "picsplit/" + Version + " (https://github.com/sebastienfr/picsplit)"
 }
-
-var (
-	geocodeCache      = make(map[string]string)
-	geocodeCacheMutex sync.RWMutex
-	lastNominatimCall time.Time
-	nominatimMutex    sync.Mutex
-)
 
 // LocationInfo contains reverse geocoded location information
 type LocationInfo struct {
@@ -111,10 +108,22 @@ type LocationInfo struct {
 	Country string
 }
 
-// ReverseGeocode tries to get a human-readable location name from GPS coordinates
-// Returns an enriched folder name with format: "coordinates - country - city"
-// Falls back to just coordinates if geocoding fails (offline, timeout, error) or if useGeocoding is false
-func ReverseGeocode(lat, lon float64, useGeocoding bool) string {
+type GeocodingService struct {
+	cache             map[string]string
+	cacheMutex        sync.RWMutex
+	lastNominatimCall time.Time
+	nominatimMutex    sync.Mutex
+	client            *http.Client
+}
+
+func NewGeocodingService() *GeocodingService {
+	return &GeocodingService{
+		cache:  make(map[string]string),
+		client: &http.Client{Timeout: geocodingTimeout},
+	}
+}
+
+func (gs *GeocodingService) ReverseGeocode(lat, lon float64, useGeocoding bool) string {
 	coords := FormatLocationName(GPSCoord{Lat: lat, Lon: lon})
 
 	// If geocoding disabled, return coordinates only
@@ -124,7 +133,7 @@ func ReverseGeocode(lat, lon float64, useGeocoding bool) string {
 
 	// Check cache first
 	cacheKey := fmt.Sprintf("%.4f,%.4f", lat, lon)
-	if cached, found := getCachedLocation(cacheKey); found {
+	if cached, found := gs.getCachedLocation(cacheKey); found {
 		return cached
 	}
 
@@ -135,9 +144,9 @@ func ReverseGeocode(lat, lon float64, useGeocoding bool) string {
 	var locationInfo *LocationInfo
 
 	// Try Nominatim first
-	if info := tryNominatim(ctx, lat, lon); info != nil {
+	if info := gs.tryNominatim(ctx, lat, lon); info != nil {
 		locationInfo = info
-	} else if info := tryBigDataCloud(ctx, lat, lon); info != nil {
+	} else if info := gs.tryBigDataCloud(ctx, lat, lon); info != nil {
 		// Fallback to BigDataCloud
 		locationInfo = info
 	}
@@ -158,21 +167,20 @@ func ReverseGeocode(lat, lon float64, useGeocoding bool) string {
 
 	// Sanitize and cache
 	folderName = sanitizeFolderName(folderName)
-	setCachedLocation(cacheKey, folderName)
+	gs.setCachedLocation(cacheKey, folderName)
 
 	return folderName
 }
 
-// tryNominatim attempts reverse geocoding using OpenStreetMap Nominatim
-func tryNominatim(ctx context.Context, lat, lon float64) *LocationInfo {
+func (gs *GeocodingService) tryNominatim(ctx context.Context, lat, lon float64) *LocationInfo {
 	// Respect rate limit (1 req/s)
-	nominatimMutex.Lock()
-	timeSinceLastCall := time.Since(lastNominatimCall)
+	gs.nominatimMutex.Lock()
+	timeSinceLastCall := time.Since(gs.lastNominatimCall)
 	if timeSinceLastCall < nominatimRateLimit {
 		time.Sleep(nominatimRateLimit - timeSinceLastCall)
 	}
-	lastNominatimCall = time.Now()
-	nominatimMutex.Unlock()
+	gs.lastNominatimCall = time.Now()
+	gs.nominatimMutex.Unlock()
 
 	url := fmt.Sprintf("%s?lat=%.4f&lon=%.4f&format=json&zoom=10&addressdetails=1",
 		nominatimURL, lat, lon)
@@ -184,8 +192,7 @@ func tryNominatim(ctx context.Context, lat, lon float64) *LocationInfo {
 	}
 	req.Header.Set("User-Agent", geocodingUserAgent())
 
-	client := &http.Client{Timeout: geocodingTimeout}
-	resp, err := client.Do(req)
+	resp, err := gs.client.Do(req)
 	if err != nil {
 		slog.Debug("nominatim request failed", "error", err)
 		return nil
@@ -208,7 +215,7 @@ func tryNominatim(ctx context.Context, lat, lon float64) *LocationInfo {
 		} `json:"address"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxGeocodingBodyBytes)).Decode(&result); err != nil {
 		slog.Debug("failed to decode nominatim response", "error", err)
 		return nil
 	}
@@ -232,8 +239,7 @@ func tryNominatim(ctx context.Context, lat, lon float64) *LocationInfo {
 	}
 }
 
-// tryBigDataCloud attempts reverse geocoding using BigDataCloud API
-func tryBigDataCloud(ctx context.Context, lat, lon float64) *LocationInfo {
+func (gs *GeocodingService) tryBigDataCloud(ctx context.Context, lat, lon float64) *LocationInfo {
 	url := fmt.Sprintf("%s?latitude=%.4f&longitude=%.4f&localityLanguage=en",
 		bigDataCloudURL, lat, lon)
 
@@ -242,9 +248,9 @@ func tryBigDataCloud(ctx context.Context, lat, lon float64) *LocationInfo {
 		slog.Debug("failed to create bigdatacloud request", "error", err)
 		return nil
 	}
+	req.Header.Set("User-Agent", geocodingUserAgent())
 
-	client := &http.Client{Timeout: geocodingTimeout}
-	resp, err := client.Do(req)
+	resp, err := gs.client.Do(req)
 	if err != nil {
 		slog.Debug("bigdatacloud request failed", "error", err)
 		return nil
@@ -262,7 +268,7 @@ func tryBigDataCloud(ctx context.Context, lat, lon float64) *LocationInfo {
 		CountryName string `json:"countryName"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxGeocodingBodyBytes)).Decode(&result); err != nil {
 		slog.Debug("failed to decode bigdatacloud response", "error", err)
 		return nil
 	}
@@ -282,34 +288,54 @@ func tryBigDataCloud(ctx context.Context, lat, lon float64) *LocationInfo {
 	}
 }
 
+// folderNameReplacer replaces characters that are invalid in folder names: / \ : * ? " < > |
+var folderNameReplacer = strings.NewReplacer(
+	"/", "-",
+	"\\", "-",
+	":", "-",
+	"*", "",
+	"?", "",
+	"\"", "",
+	"<", "",
+	">", "",
+	"|", "-",
+)
+
 // sanitizeFolderName removes or replaces characters that are invalid in folder names
 func sanitizeFolderName(name string) string {
-	// Replace invalid characters: / \ : * ? " < > |
-	replacer := strings.NewReplacer(
-		"/", "-",
-		"\\", "-",
-		":", "-",
-		"*", "",
-		"?", "",
-		"\"", "",
-		"<", "",
-		">", "",
-		"|", "-",
-	)
-	return strings.TrimSpace(replacer.Replace(name))
+	name = folderNameReplacer.Replace(name)
+
+	// Remove null bytes and control characters
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F || unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, name)
+
+	name = strings.TrimSpace(name)
+
+	// Enforce maximum length (truncate at rune boundary to preserve UTF-8 validity)
+	if len(name) > maxFolderNameLength {
+		runes := []rune(name)
+		for len(string(runes)) > maxFolderNameLength {
+			runes = runes[:len(runes)-1]
+		}
+		name = string(runes)
+	}
+
+	return name
 }
 
-// getCachedLocation retrieves a cached geocoding result
-func getCachedLocation(key string) (string, bool) {
-	geocodeCacheMutex.RLock()
-	defer geocodeCacheMutex.RUnlock()
-	name, exists := geocodeCache[key]
+func (gs *GeocodingService) getCachedLocation(key string) (string, bool) {
+	gs.cacheMutex.RLock()
+	defer gs.cacheMutex.RUnlock()
+	name, exists := gs.cache[key]
 	return name, exists
 }
 
-// setCachedLocation stores a geocoding result in cache
-func setCachedLocation(key, value string) {
-	geocodeCacheMutex.Lock()
-	defer geocodeCacheMutex.Unlock()
-	geocodeCache[key] = value
+func (gs *GeocodingService) setCachedLocation(key, value string) {
+	gs.cacheMutex.Lock()
+	defer gs.cacheMutex.Unlock()
+	gs.cache[key] = value
 }
