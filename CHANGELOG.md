@@ -9,6 +9,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.10.0] - 2026-03-07
+
+### Security
+- **Path traversal protection in merge command** ([#22](https://github.com/sebastienfr/picsplit/issues/22))
+  - Added overlap detection between source and target folders
+  - Added `isSafeToRemoveAll()` guard before `os.RemoveAll`
+  - New functions: `resolvePath()`, `isSubPath()`, `isSafeToRemoveAll()`
+- **Symlink handling in file operations** ([#28](https://github.com/sebastienfr/picsplit/issues/28))
+  - Skip symlinks in merge file collection and empty directory cleanup
+  - Prevents following links outside the working tree
+
+### Performance
+- **Single EXIF decode pass** ([#19](https://github.com/sebastienfr/picsplit/issues/19))
+  - New `extractEXIFAll()` extracts DateTime and GPS from a single file open/decode
+  - Eliminates redundant file I/O for photos with GPS data
+- **Removed redundant os.Stat** ([#26](https://github.com/sebastienfr/picsplit/issues/26))
+  - `ExtractMetadata()` now accepts `os.FileInfo` from caller instead of re-stat'ing
+- **SHA256 partial hash optimization** ([#27](https://github.com/sebastienfr/picsplit/issues/27))
+  - First 64KB partial hash eliminates non-duplicates without full file read
+  - Full hash only computed on partial hash collision
+  - New tests for large files and partial hash collisions
+- **Single-pass empty directory cleanup** ([#25](https://github.com/sebastienfr/picsplit/issues/25))
+  - Replaced multi-pass walk (up to 100 iterations) with single bottom-up traversal
+  - Collect all directories depth-first, process in reverse order
+
+### Fixed
+- **Custom extensions ignored in RAW pairing** ([#21](https://github.com/sebastienfr/picsplit/issues/21))
+  - `isRawPaired()` and `findAssociatedJPEG()` now use `executionContext` to respect custom photo extensions
+- **Nil map panic in ProcessingStats** ([#36](https://github.com/sebastienfr/picsplit/issues/36))
+  - Added `NewProcessingStats()` constructor to properly initialize maps
+- **Hardcoded version in geocoding user-agent** ([#37](https://github.com/sebastienfr/picsplit/issues/37))
+  - User-agent now uses dynamic `handler.Version` set from ldflags
+
+### Changed
+- **Merged process functions** ([#30](https://github.com/sebastienfr/picsplit/issues/30))
+  - `processPicture()` and `processMovie()` unified into `processMediaFile()`
+  - Removed `processPictureAtRoot()` and `processMovieAtRoot()` (logic merged)
+- **Extracted duplicate handling** ([#20](https://github.com/sebastienfr/picsplit/issues/20))
+  - New `handleDuplicate()` replaces two copy-pasted blocks in splitter.go
+- **Added ExecutionMode validation** ([#29](https://github.com/sebastienfr/picsplit/issues/29))
+  - New `ExecutionMode.IsValid()` and `ParseExecutionMode()` functions
+  - Removed duplicated mode validation in `picsplit.go`
+- **Deduplicated folder name constants** ([#32](https://github.com/sebastienfr/picsplit/issues/32))
+  - Removed duplicate `allowedSubdirMov`/`allowedSubdirRaw` in merger.go
+- **Removed unused constant** ([#33](https://github.com/sebastienfr/picsplit/issues/33))
+  - Removed `conflictAsk` constant in merger.go
+- **Standardized logging** ([#34](https://github.com/sebastienfr/picsplit/issues/34))
+  - Replaced `fmt.Println()` spacers with `slog.Info("")` in stats, validator, and merger
+- **Translated French comments** ([#31](https://github.com/sebastienfr/picsplit/issues/31))
+
+### Tests
+- Renamed `TestIsPicture` to `TestIsPhoto` ([#38](https://github.com/sebastienfr/picsplit/issues/38))
+- Fixed `geo_test.go` helpers and assertions ([#39](https://github.com/sebastienfr/picsplit/issues/39))
+- Added tests: partial hash, overlap detection, symlink skip, processMediaFile
+
+### Known Issues (Deferred)
+- [#23](https://github.com/sebastienfr/picsplit/issues/23): splitter.go should be split into focused files
+- [#24](https://github.com/sebastienfr/picsplit/issues/24): Geocoding should be encapsulated in a service struct
+- [#35](https://github.com/sebastienfr/picsplit/issues/35): Config struct fields could be grouped into sub-structs
+
+---
+
 ## [2.9.0] - 2026-01-05
 
 ### Added
@@ -664,7 +726,8 @@ Running v2.1.0 on v2.0.0-organized folders will create new folders.
 
 ---
 
-[Unreleased]: https://github.com/sebastienfr/picsplit/compare/v2.9.0...HEAD
+[Unreleased]: https://github.com/sebastienfr/picsplit/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/sebastienfr/picsplit/compare/v2.9.0...v2.10.0
 [2.9.0]: https://github.com/sebastienfr/picsplit/compare/v2.8.0...v2.9.0
 [2.8.0]: https://github.com/sebastienfr/picsplit/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/sebastienfr/picsplit/compare/v2.6.0...v2.7.0
