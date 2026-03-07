@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -390,7 +391,7 @@ func TestReverseGeocode_Fallback(t *testing.T) {
 
 	// Should at least return coordinates format
 	expectedCoords := "0.0000N-0.0000E"
-	if !containsString(result, expectedCoords) {
+	if !strings.Contains(result, expectedCoords) {
 		t.Errorf("ReverseGeocode fallback should contain coordinates: got %q", result)
 	}
 }
@@ -434,30 +435,22 @@ func TestGetCachedLocation(t *testing.T) {
 	}
 }
 
-// Helper function for string contains
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || s == substr)
-}
-
 func TestTryNominatim_InvalidCoordinates(t *testing.T) {
 	ctx := context.Background()
 
-	// Test with invalid coordinates (should return nil or handle gracefully)
 	result := tryNominatim(ctx, 999.0, 999.0)
-
-	// Should handle invalid coordinates gracefully (return nil or valid response)
-	// We don't assert the result as it depends on the API behavior
-	_ = result
+	if result != nil {
+		t.Error("tryNominatim with invalid coordinates should return nil")
+	}
 }
 
 func TestTryBigDataCloud_InvalidCoordinates(t *testing.T) {
 	ctx := context.Background()
 
-	// Test with invalid coordinates
 	result := tryBigDataCloud(ctx, 999.0, 999.0)
-
-	// Should handle invalid coordinates gracefully
-	_ = result
+	if result != nil {
+		t.Error("tryBigDataCloud with invalid coordinates should return nil")
+	}
 }
 
 func TestTryNominatim_CanceledContext(t *testing.T) {

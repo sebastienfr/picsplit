@@ -56,3 +56,47 @@ func TestConfig_Validate_MoveDuplicates(t *testing.T) {
 		}
 	})
 }
+
+func TestExecutionMode_IsValid(t *testing.T) {
+	tests := []struct {
+		mode ExecutionMode
+		want bool
+	}{
+		{ModeValidate, true},
+		{ModeDryRun, true},
+		{ModeRun, true},
+		{ExecutionMode("invalid"), false},
+		{ExecutionMode(""), false},
+	}
+
+	for _, tt := range tests {
+		if got := tt.mode.IsValid(); got != tt.want {
+			t.Errorf("ExecutionMode(%q).IsValid() = %v, want %v", tt.mode, got, tt.want)
+		}
+	}
+}
+
+func TestParseExecutionMode(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    ExecutionMode
+		wantErr bool
+	}{
+		{"validate", ModeValidate, false},
+		{"dryrun", ModeDryRun, false},
+		{"run", ModeRun, false},
+		{"invalid", "", true},
+		{"", "", true},
+	}
+
+	for _, tt := range tests {
+		got, err := ParseExecutionMode(tt.input)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("ParseExecutionMode(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("ParseExecutionMode(%q) = %v, want %v", tt.input, got, tt.want)
+		}
+	}
+}

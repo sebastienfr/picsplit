@@ -45,6 +45,16 @@ type ProcessingStats struct {
 	Errors               []*PicsplitError
 }
 
+// NewProcessingStats creates a ProcessingStats with all maps properly initialized
+func NewProcessingStats() *ProcessingStats {
+	return &ProcessingStats{
+		StartTime:          time.Now(),
+		EmptyDirsFailed:    make(map[string]string),
+		EmptyDirsRemoved:   []string{},
+		DuplicatesDetected: make(map[string]string),
+	}
+}
+
 // AddError adds an error to the statistics
 // If the error is a PicsplitError, it's added to the Errors slice
 // If it's a generic error, it's wrapped as a PicsplitError with ErrTypeIO
@@ -126,7 +136,7 @@ func FormatBytes(bytes int64) string {
 
 // PrintSummary displays the processing summary
 func (s *ProcessingStats) PrintSummary(dryRun bool) {
-	fmt.Println()
+	slog.Info("")
 	slog.Info("=== Processing Summary ===")
 
 	// Duration
@@ -198,7 +208,7 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 
 	// Display critical errors
 	if len(criticalErrors) > 0 {
-		fmt.Println()
+		slog.Info("")
 		slog.Error("critical errors encountered", "count", len(criticalErrors))
 		for _, err := range criticalErrors {
 			slog.Error(err.Error(),
@@ -211,7 +221,7 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 
 	// Display warnings (non-critical errors)
 	if len(warnings) > 0 {
-		fmt.Println()
+		slog.Info("")
 		slog.Warn("warnings detected", "count", len(warnings))
 		for _, err := range warnings {
 			slog.Warn(err.Error(),
@@ -224,7 +234,7 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 
 	// ModTime fallback summary
 	if s.ModTimeFallbackCount > 0 {
-		fmt.Println()
+		slog.Info("")
 		slog.Warn("files used ModTime fallback",
 			"count", s.ModTimeFallbackCount,
 			"reason", "EXIF metadata unavailable or corrupted")
@@ -232,7 +242,7 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 
 	// Duplicates summary
 	if len(s.DuplicatesDetected) > 0 || s.DuplicatesSkipped > 0 {
-		fmt.Println()
+		slog.Info("")
 		if s.DuplicatesSkipped > 0 {
 			slog.Info("duplicates skipped",
 				"count", s.DuplicatesSkipped)
@@ -273,7 +283,7 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 
 	// Cleanup summary
 	if len(s.EmptyDirsRemoved) > 0 || len(s.EmptyDirsFailed) > 0 {
-		fmt.Println()
+		slog.Info("")
 		if len(s.EmptyDirsRemoved) > 0 {
 			slog.Info("cleanup completed",
 				"empty_dirs_removed", len(s.EmptyDirsRemoved))
@@ -301,7 +311,7 @@ func (s *ProcessingStats) PrintSummary(dryRun bool) {
 	}
 
 	// Final status
-	fmt.Println()
+	slog.Info("")
 	if len(criticalErrors) > 0 {
 		slog.Error("⚠ Operation completed with errors",
 			"total_errors", len(criticalErrors),

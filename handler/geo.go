@@ -74,7 +74,7 @@ func FormatLocationName(coord GPSCoord) string {
 		lonDir = "W"
 	}
 
-	// Utiliser valeurs absolues
+	// Use absolute values
 	absLat := math.Abs(coord.Lat)
 	absLon := math.Abs(coord.Lon)
 
@@ -90,10 +90,13 @@ func degreesToRadians(degrees float64) float64 {
 const (
 	geocodingTimeout   = 3 * time.Second
 	nominatimRateLimit = 1 * time.Second // Nominatim requires max 1 req/s
-	geocodingUserAgent = "picsplit/2.9.0 (https://github.com/sebastienfr/picsplit)"
 	nominatimURL       = "https://nominatim.openstreetmap.org/reverse"
 	bigDataCloudURL    = "https://api.bigdatacloud.net/data/reverse-geocode-client"
 )
+
+func geocodingUserAgent() string {
+	return "picsplit/" + Version + " (https://github.com/sebastienfr/picsplit)"
+}
 
 var (
 	geocodeCache      = make(map[string]string)
@@ -179,7 +182,7 @@ func tryNominatim(ctx context.Context, lat, lon float64) *LocationInfo {
 		slog.Debug("failed to create nominatim request", "error", err)
 		return nil
 	}
-	req.Header.Set("User-Agent", geocodingUserAgent)
+	req.Header.Set("User-Agent", geocodingUserAgent())
 
 	client := &http.Client{Timeout: geocodingTimeout}
 	resp, err := client.Do(req)

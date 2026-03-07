@@ -171,7 +171,7 @@ func TestFindAssociatedJPEG(t *testing.T) {
 			}
 
 			// Execute the test
-			result, err := findAssociatedJPEG(rawPath)
+			result, err := findAssociatedJPEG(newDefaultExecutionContext(), rawPath)
 
 			if tt.shouldError {
 				if err == nil {
@@ -233,7 +233,11 @@ func TestExtractMetadata_Fallback(t *testing.T) {
 
 	// Extract metadata
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, testFile)
+	info, err := os.Stat(testFile)
+	if err != nil {
+		t.Fatalf("failed to stat test file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, testFile, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
@@ -258,14 +262,6 @@ func TestExtractMetadata_Fallback(t *testing.T) {
 	// Verify that GPS is nil (no GPS data)
 	if metadata.GPS != nil {
 		t.Errorf("ExtractMetadata() GPS = %v, want nil", metadata.GPS)
-	}
-}
-
-func TestExtractMetadata_NonExistentFile(t *testing.T) {
-	ctx := newDefaultExecutionContext()
-	_, err := ExtractMetadata(ctx, "/nonexistent/file.jpg")
-	if err == nil {
-		t.Error("ExtractMetadata() expected error for non-existent file, got nil")
 	}
 }
 
@@ -459,7 +455,11 @@ func TestExtractMetadata_WithEXIF(t *testing.T) {
 	createJPEGWithEXIF(t, testFile, expectedDate)
 
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, testFile)
+	info, err := os.Stat(testFile)
+	if err != nil {
+		t.Fatalf("failed to stat test file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, testFile, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
@@ -490,7 +490,11 @@ func TestExtractMetadata_RAWWithAssociatedJPEG(t *testing.T) {
 	createJPEGWithEXIF(t, jpegFile, expectedDate)
 
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, rawFile)
+	info, err := os.Stat(rawFile)
+	if err != nil {
+		t.Fatalf("failed to stat raw file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, rawFile, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
@@ -515,7 +519,11 @@ func TestExtractMetadata_RAWWithoutJPEG(t *testing.T) {
 	}
 
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, rawFile)
+	info, err := os.Stat(rawFile)
+	if err != nil {
+		t.Fatalf("failed to stat raw file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, rawFile, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
@@ -616,9 +624,12 @@ func TestExtractMetadata_VideoFile(t *testing.T) {
 	expectedTime := time.Date(2024, 12, 20, 15, 30, 0, 0, time.UTC)
 	mp4Path := getTestMP4Fixture()
 
-	// Extract metadata using ExtractMetadata
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, mp4Path)
+	info, err := os.Stat(mp4Path)
+	if err != nil {
+		t.Fatalf("failed to stat mp4 file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, mp4Path, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
@@ -640,9 +651,12 @@ func TestExtractMetadata_VideoWithInvalidDate(t *testing.T) {
 	invalidTime := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	mp4Path := createTestMP4WithTimestamp(t, invalidTime)
 
-	// Extract metadata
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, mp4Path)
+	info, err := os.Stat(mp4Path)
+	if err != nil {
+		t.Fatalf("failed to stat mp4 file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, mp4Path, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
@@ -669,7 +683,11 @@ func TestExtractMetadata_PhotoWithInvalidEXIFDate(t *testing.T) {
 	createJPEGWithEXIF(t, testFile, invalidDate)
 
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, testFile)
+	info, err := os.Stat(testFile)
+	if err != nil {
+		t.Fatalf("failed to stat test file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, testFile, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
@@ -689,7 +707,11 @@ func TestExtractMetadata_UnsupportedFileType(t *testing.T) {
 	}
 
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, testFile)
+	info, err := os.Stat(testFile)
+	if err != nil {
+		t.Fatalf("failed to stat test file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, testFile, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}
@@ -714,7 +736,11 @@ func TestExtractMetadata_MovieFallback(t *testing.T) {
 	}
 
 	ctx := newDefaultExecutionContext()
-	metadata, err := ExtractMetadata(ctx, testFile)
+	info, err := os.Stat(testFile)
+	if err != nil {
+		t.Fatalf("failed to stat test file: %v", err)
+	}
+	metadata, err := ExtractMetadata(ctx, testFile, info)
 	if err != nil {
 		t.Fatalf("ExtractMetadata() failed: %v", err)
 	}

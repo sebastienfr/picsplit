@@ -219,6 +219,9 @@ func main() {
 	// Get build information
 	version, localBuildTime, commitTime, gitHash := getBuildInfo()
 
+	// Share version with handler package for user-agent strings
+	handler.Version = version
+
 	// Parse build time (prefer local build time)
 	buildTimeObj, err := time.Parse(time.RFC3339, localBuildTime)
 	if err != nil {
@@ -347,16 +350,9 @@ func main() {
 					}
 
 					// Handle execution mode
-					mode := handler.ExecutionMode(c.String("mode"))
-
-					// Validate execution mode
-					validModes := map[handler.ExecutionMode]bool{
-						handler.ModeValidate: true,
-						handler.ModeDryRun:   true,
-						handler.ModeRun:      true,
-					}
-					if !validModes[mode] {
-						return fmt.Errorf("invalid --mode value: %s (must be: validate, dryrun, or run)", mode)
+					mode, err := handler.ParseExecutionMode(c.String("mode"))
+					if err != nil {
+						return err
 					}
 
 					// Debug info
@@ -605,16 +601,9 @@ func main() {
 		}
 
 		// Handle execution mode
-		mode := handler.ExecutionMode(executionMode)
-
-		// Validate execution mode
-		validModes := map[handler.ExecutionMode]bool{
-			handler.ModeValidate: true,
-			handler.ModeDryRun:   true,
-			handler.ModeRun:      true,
-		}
-		if !validModes[mode] {
-			return fmt.Errorf("invalid --mode value: %s (must be: validate, dryrun, or run)", mode)
+		mode, err := handler.ParseExecutionMode(executionMode)
+		if err != nil {
+			return err
 		}
 
 		cfg := &handler.Config{

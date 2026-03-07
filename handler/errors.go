@@ -93,7 +93,7 @@ func (e *PicsplitError) IsCritical() bool {
 	case ErrTypePermission, ErrTypeIO, ErrTypeValidation:
 		return true
 	case ErrTypeEXIF, ErrTypeVideoMeta, ErrTypeGPS:
-		return false // Fallback automatique possible
+		return false // Automatic fallback available
 	default:
 		return true
 	}

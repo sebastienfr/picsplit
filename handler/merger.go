@@ -3,6 +3,7 @@ package handler
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,16 +12,11 @@ import (
 
 const (
 	// Conflict resolution strategies
-	conflictAsk       = "ask"       // Ask user for each conflict
 	conflictRename    = "rename"    // Rename conflicting file
 	conflictSkip      = "skip"      // Skip conflicting file
 	conflictOverwrite = "overwrite" // Overwrite target file
 	conflictQuit      = "quit"      // Abort merge operation
 	conflictApplyAll  = "all"       // Apply choice to all remaining conflicts
-
-	// Allowed subdirectory names in media folders
-	allowedSubdirMov = "mov"
-	allowedSubdirRaw = "raw"
 
 	// File permissions (Unix octal notation)
 	// permDirectory: 0755 = rwxr-xr-x
@@ -30,6 +26,11 @@ const (
 	// - Others (5 = 101 binary): read(4) + execute(1) = read and traverse directory
 	// Used for creating directories throughout the handler package
 	permDirectory = 0755
+
+	// minRemoveAllPathComponents is the minimum number of path components
+	// required for os.RemoveAll to proceed, preventing accidental deletion
+	// of root or shallow system directories.
+	minRemoveAllPathComponents = 3
 )
 
 // MergeConfig contains configuration for merge operation
@@ -76,10 +77,10 @@ func isMediaFolderWithContext(folderPath string, ctx *executionContext) error {
 
 	for _, entry := range entries {
 		if entry.IsDir() {
-			// Only allow allowedSubdirMov and allowedSubdirRaw subdirectories
+			// Only allow movFolderName and rawFolderName subdirectories
 			dirName := strings.ToLower(entry.Name())
-			if dirName != allowedSubdirMov && dirName != allowedSubdirRaw {
-				return fmt.Errorf("folder %s contains non-media subdirectory: %s (only '%s' and '%s' subdirectories are allowed)", folderPath, entry.Name(), allowedSubdirMov, allowedSubdirRaw)
+			if dirName != movFolderName && dirName != rawFolderName {
+				return fmt.Errorf("folder %s contains non-media subdirectory: %s (only '%s' and '%s' subdirectories are allowed)", folderPath, entry.Name(), movFolderName, rawFolderName)
 			}
 
 			// Recursively validate subdirectories
@@ -98,11 +99,120 @@ func isMediaFolderWithContext(folderPath string, ctx *executionContext) error {
 	return nil
 }
 
+// resolvePath resolves a path to its canonical absolute form.
+// It first resolves to an absolute path, then evaluates symlinks.
+// If symlink evaluation fails (e.g., path doesn't exist yet), it returns the absolute path.
+func resolvePath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path for %s: %w", path, err)
+	}
+
+	// Try to resolve symlinks for the full path
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// Path doesn't exist yet (e.g., target folder) — resolve parent directory instead
+		parentResolved, parentErr := filepath.EvalSymlinks(filepath.Dir(absPath))
+		if parentErr != nil {
+			return absPath, nil
+		}
+		return filepath.Join(parentResolved, filepath.Base(absPath)), nil
+	}
+
+	return resolved, nil
+}
+
+// isSubPath checks if child is equal to or a subdirectory of parent.
+// Both paths must be cleaned absolute paths.
+func isSubPath(parent, child string) bool {
+	if parent == child {
+		return true
+	}
+
+	parentWithSep := parent + string(filepath.Separator)
+	return strings.HasPrefix(child, parentWithSep)
+}
+
+// isSafeToRemoveAll checks that a path is safe to pass to os.RemoveAll.
+// It rejects root, home directory, and paths with fewer than minRemoveAllPathComponents components.
+func isSafeToRemoveAll(path string) error {
+	resolved, err := resolvePath(path)
+	if err != nil {
+		return fmt.Errorf("cannot resolve path for safety check: %w", err)
+	}
+
+	if resolved == "/" {
+		return fmt.Errorf("refusing to remove root directory")
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		resolvedHome, homeErr := resolvePath(homeDir)
+		if homeErr == nil && resolved == resolvedHome {
+			return fmt.Errorf("refusing to remove home directory: %s", resolved)
+		}
+	}
+
+	components := strings.Split(resolved, string(filepath.Separator))
+	nonEmpty := 0
+	for _, c := range components {
+		if c != "" {
+			nonEmpty++
+		}
+	}
+
+	if nonEmpty < minRemoveAllPathComponents {
+		return fmt.Errorf("refusing to remove path with fewer than %d components: %s", minRemoveAllPathComponents, resolved)
+	}
+
+	return nil
+}
+
 // validateMergeFolders validates that folders can be merged
 func validateMergeFolders(sources []string, target string, ctx *executionContext) error {
 	// Check minimum arguments
 	if len(sources) < 1 {
 		return fmt.Errorf("merge requires at least 1 source folder")
+	}
+
+	resolvedTarget, err := resolvePath(target)
+	if err != nil {
+		return fmt.Errorf("failed to resolve target path: %w", err)
+	}
+
+	resolvedSources := make([]string, len(sources))
+	for i, source := range sources {
+		resolved, err := resolvePath(source)
+		if err != nil {
+			return fmt.Errorf("failed to resolve source path %s: %w", source, err)
+		}
+		resolvedSources[i] = resolved
+	}
+
+	for i, rs := range resolvedSources {
+		if rs == resolvedTarget {
+			return fmt.Errorf("source and target are the same path: %s", sources[i])
+		}
+
+		if isSubPath(rs, resolvedTarget) {
+			return fmt.Errorf("target %s is inside source %s", target, sources[i])
+		}
+
+		if isSubPath(resolvedTarget, rs) {
+			return fmt.Errorf("source %s is inside target %s", sources[i], target)
+		}
+	}
+
+	for i := 0; i < len(resolvedSources); i++ {
+		for j := i + 1; j < len(resolvedSources); j++ {
+			if isSubPath(resolvedSources[i], resolvedSources[j]) {
+				return fmt.Errorf("source folders overlap: %s contains %s", sources[i], sources[j])
+			}
+
+			if isSubPath(resolvedSources[j], resolvedSources[i]) {
+				return fmt.Errorf("source folders overlap: %s contains %s", sources[j], sources[i])
+			}
+		}
 	}
 
 	// Check each source folder
@@ -137,17 +247,26 @@ func validateMergeFolders(sources []string, target string, ctx *executionContext
 	return nil
 }
 
-// collectFilesRecursive collects all files from a directory recursively
+// collectFilesRecursive collects all files from a directory recursively, skipping symlinks
 func collectFilesRecursive(rootDir string) ([]string, error) {
 	var files []string
 
-	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
+		// Skip symlinks (both file and directory symlinks)
+		if d.Type()&os.ModeSymlink != 0 {
+			slog.Warn("skipping symlink", "path", path)
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+
 		// Skip directories, collect only files
-		if !info.IsDir() {
+		if !d.IsDir() {
 			files = append(files, path)
 		}
 
@@ -300,7 +419,7 @@ type MergeValidationReport struct {
 
 // Print displays the merge validation report
 func (r *MergeValidationReport) Print() {
-	fmt.Println()
+	slog.Info("")
 	slog.Info("=== Merge Validation Summary ===")
 
 	// Sources
@@ -319,14 +438,14 @@ func (r *MergeValidationReport) Print() {
 
 	// Conflicts
 	if r.Conflicts > 0 {
-		fmt.Println()
+		slog.Info("")
 		slog.Warn("potential conflicts detected", "count", r.Conflicts)
 		slog.Warn("→ Use --force to auto-overwrite, or resolve manually during merge")
 	}
 
 	// Errors
 	if len(r.Errors) > 0 {
-		fmt.Println()
+		slog.Info("")
 		slog.Error("critical issues detected", "count", len(r.Errors))
 		for _, err := range r.Errors {
 			slog.Error(err.Error())
@@ -335,7 +454,7 @@ func (r *MergeValidationReport) Print() {
 
 	// Warnings
 	if len(r.Warnings) > 0 {
-		fmt.Println()
+		slog.Info("")
 		slog.Warn("warnings detected", "count", len(r.Warnings))
 		for _, warning := range r.Warnings {
 			slog.Warn(warning)
@@ -343,7 +462,7 @@ func (r *MergeValidationReport) Print() {
 	}
 
 	// Final recommendation
-	fmt.Println()
+	slog.Info("")
 	if len(r.Errors) > 0 {
 		slog.Warn("→ Fix critical issues before proceeding")
 	} else {
@@ -608,6 +727,9 @@ func mergeInternal(cfg *MergeConfig) error {
 			slog.Info("[DRY RUN] would delete source folder", "folder", sourceFolder)
 		} else {
 			// Remove the folder (including empty subdirectories like mov/, raw/)
+			if err := isSafeToRemoveAll(sourceFolder); err != nil {
+				return fmt.Errorf("safety check failed before removing source folder: %w", err)
+			}
 			if err := os.RemoveAll(sourceFolder); err != nil {
 				slog.Warn("failed to remove source folder", "folder", sourceFolder, "error", err)
 			} else {
@@ -618,7 +740,7 @@ func mergeInternal(cfg *MergeConfig) error {
 	}
 
 	// Print summary
-	fmt.Println()
+	slog.Info("")
 	slog.Info("=== Merge Summary ===")
 	slog.Info("merge statistics",
 		"files_processed", stats.filesProcessed,

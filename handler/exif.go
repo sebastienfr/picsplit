@@ -63,12 +63,7 @@ type FileMetadata struct {
 
 // ExtractMetadata extracts all metadata from a file (date and GPS if available)
 // Uses execution context to respect custom extensions
-func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, error) {
-	info, err := os.Stat(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to stat file: %w", err)
-	}
-
+func ExtractMetadata(ctx *executionContext, filePath string, info os.FileInfo) (*FileMetadata, error) {
 	metadata := &FileMetadata{
 		FileInfo: info,
 		DateTime: info.ModTime(),
@@ -80,15 +75,14 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 	if ctx.isPhoto(info.Name()) {
 		// For RAW files, search for associated JPG
 		if ctx.isRaw(info.Name()) {
-			jpegPath, err := findAssociatedJPEG(filePath)
+			jpegPath, err := findAssociatedJPEG(ctx, filePath)
 			if err == nil {
 				filePath = jpegPath
 				slog.Debug("using associated JPEG for RAW file", "jpeg", jpegPath, "raw", info.Name())
 			}
 		}
 
-		// Extract EXIF
-		dateTime, err := extractEXIFDate(filePath)
+		dateTime, gps, err := extractEXIFAll(filePath)
 		if err == nil && isValidDateTime(dateTime) {
 			metadata.DateTime = dateTime
 			metadata.Source = DateSourceEXIF
@@ -96,10 +90,7 @@ func ExtractMetadata(ctx *executionContext, filePath string) (*FileMetadata, err
 		} else {
 			slog.Debug("failed to extract EXIF date", "file", info.Name(), "error", err)
 		}
-
-		// Extract GPS
-		gps, err := extractGPS(filePath)
-		if err == nil && gps != nil {
+		if gps != nil {
 			metadata.GPS = gps
 			slog.Debug("extracted GPS coordinates", "file", info.Name(), "lat", gps.Lat, "lon", gps.Lon)
 		}
@@ -275,6 +266,34 @@ func extractGPS(filePath string) (*GPSCoord, error) {
 	}, nil
 }
 
+// extractEXIFAll extracts both DateTime and GPS from a single EXIF decode pass
+func extractEXIFAll(filePath string) (time.Time, *GPSCoord, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return time.Time{}, nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer f.Close()
+
+	x, err := exif.Decode(f)
+	if err != nil {
+		return time.Time{}, nil, fmt.Errorf("failed to decode EXIF: %w", err)
+	}
+
+	dateTime, dateErr := x.DateTime()
+
+	var gps *GPSCoord
+	lat, lon, gpsErr := x.LatLong()
+	if gpsErr == nil && !(lat == 0 && lon == 0) {
+		gps = &GPSCoord{Lat: lat, Lon: lon}
+	}
+
+	if dateErr != nil {
+		return time.Time{}, gps, fmt.Errorf("failed to get DateTime: %w", dateErr)
+	}
+
+	return dateTime, gps, nil
+}
+
 // isValidDateTime verifies the date is consistent
 func isValidDateTime(t time.Time) bool {
 	// Check minimum year
@@ -289,12 +308,11 @@ func isValidDateTime(t time.Time) bool {
 
 // findAssociatedJPEG finds the corresponding JPEG or HEIC file for a RAW file
 // Ex: PHOTO_01.NEF → PHOTO_01.JPG, PHOTO_01.jpeg, PHOTO_01.heic, or PHOTO_01.HEIC
-func findAssociatedJPEG(rawPath string) (string, error) {
+func findAssociatedJPEG(ctx *executionContext, rawPath string) (string, error) {
 	dir := filepath.Dir(rawPath)
 	baseName := strings.TrimSuffix(filepath.Base(rawPath), filepath.Ext(rawPath))
 
-	// Try different JPEG and HEIC extensions (iPhone shoots RAW+HEIC)
-	photoExtensions := []string{".jpg", ".JPG", ".jpeg", ".JPEG", ".heic", ".HEIC"}
+	photoExtensions := ctx.photoSearchExtensions()
 
 	for _, ext := range photoExtensions {
 		photoPath := filepath.Join(dir, baseName+ext)

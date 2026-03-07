@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -239,6 +240,55 @@ func TestGenerateUniqueName(t *testing.T) {
 	}
 }
 
+func TestCollectFilesRecursive_SkipsSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks not reliable on Windows")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a directory with real files
+	createTestFileInDir(t, tmpDir, "photo1.jpg", "content1")
+
+	// Create an external directory (outside tmpDir) with files that should NOT be collected
+	externalDir := t.TempDir()
+	createTestFileInDir(t, externalDir, "external.jpg", "external content")
+
+	// Create a symlink inside tmpDir pointing to the external directory
+	symlinkPath := filepath.Join(tmpDir, "linked_dir")
+	if err := os.Symlink(externalDir, symlinkPath); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	// Also create a file symlink
+	externalFile := filepath.Join(externalDir, "external.jpg")
+	fileSymlinkPath := filepath.Join(tmpDir, "linked_file.jpg")
+	if err := os.Symlink(externalFile, fileSymlinkPath); err != nil {
+		t.Fatalf("failed to create file symlink: %v", err)
+	}
+
+	files, err := collectFilesRecursive(tmpDir)
+	if err != nil {
+		t.Fatalf("collectFilesRecursive() error = %v", err)
+	}
+
+	// Should only contain the real file, not symlinked files
+	if len(files) != 1 {
+		t.Errorf("collectFilesRecursive() returned %d files, want 1 (only real files)", len(files))
+		for _, f := range files {
+			t.Logf("  found: %s", f)
+		}
+	}
+
+	// Verify the only file is the real one
+	for _, file := range files {
+		relPath, _ := filepath.Rel(tmpDir, file)
+		if relPath != "photo1.jpg" {
+			t.Errorf("unexpected file collected: %s (symlinked files should be skipped)", relPath)
+		}
+	}
+}
+
 func TestCollectFilesRecursive(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -283,6 +333,123 @@ func TestCollectFilesRecursive(t *testing.T) {
 // ========================================
 // Tests for Validation
 // ========================================
+
+func TestValidateMergeFolders_OverlapDetection(t *testing.T) {
+	tests := []struct {
+		name      string
+		setupFunc func(t *testing.T) (sources []string, target string)
+		wantError bool
+		errorText string
+	}{
+		{
+			name: "Source equals target",
+			setupFunc: func(t *testing.T) ([]string, string) {
+				dir := t.TempDir()
+				source := filepath.Join(dir, "folder")
+				createTestFileInDir(t, source, "photo.jpg", "data")
+				return []string{source}, source
+			},
+			wantError: true,
+			errorText: "source and target are the same path",
+		},
+		{
+			name: "Source is parent of target",
+			setupFunc: func(t *testing.T) ([]string, string) {
+				dir := t.TempDir()
+				source := filepath.Join(dir, "parent")
+				createTestFileInDir(t, source, "photo.jpg", "data")
+				target := filepath.Join(source, "child")
+				return []string{source}, target
+			},
+			wantError: true,
+			errorText: "target",
+		},
+		{
+			name: "Target is parent of source",
+			setupFunc: func(t *testing.T) ([]string, string) {
+				dir := t.TempDir()
+				target := filepath.Join(dir, "parent")
+				source := filepath.Join(target, "child")
+				createTestFileInDir(t, source, "photo.jpg", "data")
+				return []string{source}, target
+			},
+			wantError: true,
+			errorText: "source",
+		},
+		{
+			name: "Sources overlap with each other",
+			setupFunc: func(t *testing.T) ([]string, string) {
+				dir := t.TempDir()
+				source1 := filepath.Join(dir, "parent")
+				source2 := filepath.Join(source1, "child")
+				createTestFileInDir(t, source1, "photo.jpg", "data")
+				createTestFileInDir(t, source2, "photo2.jpg", "data")
+				target := filepath.Join(dir, "target")
+				return []string{source1, source2}, target
+			},
+			wantError: true,
+			errorText: "source folders overlap",
+		},
+		{
+			name: "Valid non-overlapping paths",
+			setupFunc: func(t *testing.T) ([]string, string) {
+				dir := t.TempDir()
+				source1 := filepath.Join(dir, "source1")
+				source2 := filepath.Join(dir, "source2")
+				createTestFileInDir(t, source1, "photo1.jpg", "data")
+				createTestFileInDir(t, source2, "photo2.jpg", "data")
+				target := filepath.Join(dir, "target")
+				return []string{source1, source2}, target
+			},
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sources, target := tt.setupFunc(t)
+			ctx := newDefaultExecutionContext()
+			err := validateMergeFolders(sources, target, ctx)
+
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("validateMergeFolders() expected error containing %q, got nil", tt.errorText)
+				} else if !strings.Contains(err.Error(), tt.errorText) {
+					t.Errorf("validateMergeFolders() error = %v, want error containing %q", err, tt.errorText)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("validateMergeFolders() unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestIsSafeToRemoveAll(t *testing.T) {
+	tests := []struct {
+		name      string
+		path      string
+		wantError bool
+	}{
+		{"Root directory", "/", true},
+		{"Shallow path", "/usr", true},
+		{"Two components", "/usr/local", true},
+		{"Deep enough path", "/usr/local/bin", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := isSafeToRemoveAll(tt.path)
+			if tt.wantError && err == nil {
+				t.Errorf("isSafeToRemoveAll(%q) expected error, got nil", tt.path)
+			}
+			if !tt.wantError && err != nil {
+				t.Errorf("isSafeToRemoveAll(%q) unexpected error: %v", tt.path, err)
+			}
+		})
+	}
+}
 
 func TestValidateMergeFolders_Success(t *testing.T) {
 	tmpDir := t.TempDir()

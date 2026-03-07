@@ -169,3 +169,14 @@ func (ctx *executionContext) isMediaFile(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	return ctx.movieExtensions[ext] || ctx.rawExtensions[ext] || ctx.photoExtensions[ext]
 }
+
+// photoSearchExtensions returns extensions to search for when pairing RAW files.
+// Returns both lowercase and uppercase variants for case-sensitive filesystems.
+func (ctx *executionContext) photoSearchExtensions() []string {
+	result := make([]string, 0, len(ctx.photoExtensions)*2)
+	for ext := range ctx.photoExtensions {
+		result = append(result, ext)
+		result = append(result, strings.ToUpper(ext))
+	}
+	return result
+}

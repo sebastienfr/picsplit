@@ -64,116 +64,100 @@ func CleanupEmptyDirs(rootPath string, mode ExecutionMode, force bool, customIgn
 		slog.Debug("using custom ignored files for cleanup", "files", customIgnoredFiles)
 	}
 
-	// Make multiple passes to remove nested empty directories
-	// Each pass can make parents empty, so continue until no more changes
-	maxPasses := 100 // Protection against infinite loops
-	for pass := 0; pass < maxPasses; pass++ {
-		emptyDirs := []string{}
+	// Single-pass bottom-up approach: collect all directories depth-first,
+	// then process in reverse order (deepest first). Removing a child before
+	// checking the parent naturally makes parents eligible in the same pass.
+	var allDirs []string
 
-		// Collect empty directories
-		err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				slog.Warn("failed to access path during cleanup", "path", path, "error", err)
-				return nil // Continue walk
-			}
-
-			// Skip files
-			if !d.IsDir() {
-				return nil
-			}
-
-			// Skip root path
-			if path == rootPath {
-				return nil
-			}
-
-			// Skip protected directories
-			if isProtectedDir(path) {
-				slog.Debug("skipping protected directory", "path", path)
-				return fs.SkipDir
-			}
-
-			// Check if empty (considering ignored files)
-			empty, err := isDirEmptyWithIgnored(path, allIgnoredFiles)
-			if err != nil {
-				slog.Warn("failed to check if directory is empty", "path", path, "error", err)
-				result.FailedDirs[path] = err
-				return nil // Continue walk
-			}
-
-			if empty {
-				emptyDirs = append(emptyDirs, path)
-			}
-
-			return nil
-		})
-
+	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return result, fmt.Errorf("failed to walk directory tree: %w", err)
+			slog.Warn("failed to access path during cleanup", "path", path, "error", err)
+			return nil
 		}
 
-		// If no empty directory found, we're done
-		if len(emptyDirs) == 0 {
-			break
+		if !d.IsDir() {
+			return nil
 		}
 
-		// In Run mode without force, ask confirmation on first pass
-		if mode == ModeRun && !force && pass == 0 {
-			if !askConfirmation(emptyDirs) {
-				slog.Info("cleanup cancelled by user")
-				return result, nil
-			}
+		if path == rootPath {
+			return nil
 		}
 
-		// Iterate empty directories in reverse order (bottom-up)
-		// to remove subdirectories before parents
-		removedInPass := 0
-		for i := len(emptyDirs) - 1; i >= 0; i-- {
-			dir := emptyDirs[i]
-
-			// Re-check if empty (may have changed during this pass)
-			empty, err := isDirEmptyWithIgnored(dir, allIgnoredFiles)
-			if err != nil {
-				slog.Warn("failed to re-check if directory is empty", "path", dir, "error", err)
-				result.FailedDirs[dir] = err
-				continue
-			}
-
-			if !empty {
-				slog.Debug("directory no longer empty, skipping", "path", dir)
-				continue
-			}
-
-			if mode == ModeDryRun {
-				slog.Info("would remove empty directory", "path", dir)
-				result.RemovedDirs = append(result.RemovedDirs, dir)
-				removedInPass++
-			} else {
-				// First remove ignored files in directory
-				if err := removeIgnoredFiles(dir, allIgnoredFiles); err != nil {
-					slog.Warn("failed to remove ignored files", "path", dir, "error", err)
-				}
-
-				// Then remove empty directory
-				if err := os.Remove(dir); err != nil {
-					slog.Warn("failed to remove empty directory", "path", dir, "error", err)
-					result.FailedDirs[dir] = err
-				} else {
-					slog.Info("removed empty directory", "path", dir)
-					result.RemovedDirs = append(result.RemovedDirs, dir)
-					removedInPass++
-				}
-			}
+		// Skip symlink directories to avoid following links outside the tree
+		if d.Type()&os.ModeSymlink != 0 {
+			slog.Warn("skipping symlink directory during cleanup", "path", path)
+			return fs.SkipDir
 		}
 
-		// If no directory was removed in this pass, we're done
-		if removedInPass == 0 {
-			break
+		if isProtectedDir(path) {
+			slog.Debug("skipping protected directory", "path", path)
+			return fs.SkipDir
 		}
 
-		// In dry-run mode, only one pass needed (not actually deleting)
+		allDirs = append(allDirs, path)
+		return nil
+	})
+
+	if err != nil {
+		return result, fmt.Errorf("failed to walk directory tree: %w", err)
+	}
+
+	// Find initially empty directories for user confirmation
+	var emptyDirs []string
+	for i := len(allDirs) - 1; i >= 0; i-- {
+		dir := allDirs[i]
+		empty, checkErr := isDirEmptyWithIgnored(dir, allIgnoredFiles)
+		if checkErr != nil {
+			slog.Warn("failed to check if directory is empty", "path", dir, "error", checkErr)
+			result.FailedDirs[dir] = checkErr
+			continue
+		}
+		if empty {
+			emptyDirs = append(emptyDirs, dir)
+		}
+	}
+
+	if len(emptyDirs) == 0 {
+		return result, nil
+	}
+
+	// In Run mode without force, ask confirmation
+	if mode == ModeRun && !force {
+		if !askConfirmation(emptyDirs) {
+			slog.Info("cleanup cancelled by user")
+			return result, nil
+		}
+	}
+
+	// Process all directories bottom-up (deepest first)
+	for i := len(allDirs) - 1; i >= 0; i-- {
+		dir := allDirs[i]
+
+		empty, checkErr := isDirEmptyWithIgnored(dir, allIgnoredFiles)
+		if checkErr != nil {
+			result.FailedDirs[dir] = checkErr
+			continue
+		}
+
+		if !empty {
+			continue
+		}
+
 		if mode == ModeDryRun {
-			break
+			slog.Info("would remove empty directory", "path", dir)
+			result.RemovedDirs = append(result.RemovedDirs, dir)
+		} else {
+			if err := removeIgnoredFiles(dir, allIgnoredFiles); err != nil {
+				slog.Warn("failed to remove ignored files", "path", dir, "error", err)
+			}
+
+			if err := os.Remove(dir); err != nil {
+				slog.Warn("failed to remove empty directory", "path", dir, "error", err)
+				result.FailedDirs[dir] = err
+			} else {
+				slog.Info("removed empty directory", "path", dir)
+				result.RemovedDirs = append(result.RemovedDirs, dir)
+			}
 		}
 	}
 

@@ -132,7 +132,7 @@ func collectMediaFilesWithMetadata(cfg *Config, ctx *executionContext) ([]FileMe
 		// Extract metadata (EXIF/video)
 		var metadata *FileMetadata
 		if cfg.UseEXIF {
-			metadata, err = ExtractMetadata(ctx, filePath)
+			metadata, err = ExtractMetadata(ctx, filePath, info)
 			if err != nil || metadata.Source == DateSourceModTime {
 				slog.Debug("failed to extract metadata, using ModTime", "file", info.Name())
 				exifFailCount++
@@ -223,6 +223,65 @@ func groupFilesByGaps(files []FileMetadata, delta time.Duration) []fileGroup {
 	return groups
 }
 
+// handleDuplicate checks if a file is a duplicate and handles it according to config.
+// Returns true if the file should be skipped (was a duplicate that was handled).
+func handleDuplicate(cfg *Config, detector *DuplicateDetector, stats *ProcessingStats, filePath string, fileName string, fileSize int64) (skip bool, err error) {
+	if !cfg.DetectDuplicates {
+		return false, nil
+	}
+
+	isDup, original, checkErr := detector.Check(filePath, fileSize)
+	if checkErr != nil {
+		slog.Warn("failed to check duplicate", "file", fileName, "error", checkErr)
+		return false, nil
+	}
+
+	if !isDup {
+		return false, nil
+	}
+
+	stats.DuplicatesDetected[filePath] = original
+
+	if cfg.SkipDuplicates {
+		slog.Info("skipping duplicate", "file", fileName, "original", filepath.Base(original))
+		stats.DuplicatesSkipped++
+		return true, nil
+	}
+
+	if cfg.MoveDuplicates {
+		duplicatesDir := filepath.Join(cfg.BasePath, duplicatesFolderName)
+		if cfg.Mode != ModeDryRun {
+			if mkErr := os.MkdirAll(duplicatesDir, permDirectory); mkErr != nil {
+				slog.Error("failed to create duplicates folder", "error", mkErr)
+				if cfg.ContinueOnError {
+					stats.AddError(fmt.Errorf("failed to create duplicates folder: %w", mkErr))
+					return true, nil
+				}
+				return false, mkErr
+			}
+		}
+
+		if mvErr := moveFile(cfg.BasePath, fileName, duplicatesFolderName, cfg.Mode == ModeDryRun); mvErr != nil {
+			slog.Error("failed to move duplicate", "file", fileName, "error", mvErr)
+			if cfg.ContinueOnError {
+				stats.AddError(fmt.Errorf("failed to move duplicate %s: %w", fileName, mvErr))
+				return true, nil
+			}
+			return false, mvErr
+		}
+		if cfg.Mode == ModeDryRun {
+			slog.Info("would move duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
+		} else {
+			slog.Info("moved duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
+		}
+		stats.DuplicatesSkipped++
+		return true, nil
+	}
+
+	slog.Warn("duplicate detected (processing anyway)", "file", fileName, "original", filepath.Base(original))
+	return false, nil
+}
+
 // processGroup processes all files in a group
 func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *ProcessingStats, detector *DuplicateDetector) error {
 	// Create main folder (unless dry-run)
@@ -238,73 +297,20 @@ func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *Pr
 		fileName := file.FileInfo.Name()
 		filePath := filepath.Join(cfg.BasePath, fileName)
 
-		// Check if file is a duplicate
-		if cfg.DetectDuplicates {
-			isDup, original, err := detector.Check(filePath, file.FileInfo.Size())
-			if err != nil {
-				slog.Warn("failed to check duplicate", "file", fileName, "error", err)
-				// Continue processing even if duplicate detection fails
-			} else if isDup {
-				// Duplicate detected
-				stats.DuplicatesDetected[filePath] = original
-
-				if cfg.SkipDuplicates {
-					// Skip this file
-					slog.Info("skipping duplicate", "file", fileName, "original", filepath.Base(original))
-					stats.DuplicatesSkipped++
-					continue
-				} else if cfg.MoveDuplicates {
-					// Move to duplicates/ folder
-					duplicatesDir := filepath.Join(cfg.BasePath, duplicatesFolderName)
-					if cfg.Mode != ModeDryRun {
-						if err := os.MkdirAll(duplicatesDir, permDirectory); err != nil {
-							slog.Error("failed to create duplicates folder", "error", err)
-							if cfg.ContinueOnError {
-								stats.AddError(fmt.Errorf("failed to create duplicates folder: %w", err))
-								continue
-							}
-							return err
-						}
-					}
-
-					if err := moveFile(cfg.BasePath, fileName, duplicatesFolderName, cfg.Mode == ModeDryRun); err != nil {
-						slog.Error("failed to move duplicate", "file", fileName, "error", err)
-						if cfg.ContinueOnError {
-							stats.AddError(fmt.Errorf("failed to move duplicate %s: %w", fileName, err))
-							continue
-						}
-						return err
-					}
-					if cfg.Mode == ModeDryRun {
-						slog.Info("would move duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
-					} else {
-						slog.Info("moved duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
-					}
-					stats.DuplicatesSkipped++
-					continue
-				} else {
-					// Just a warning, process anyway
-					slog.Warn("duplicate detected (processing anyway)", "file", fileName, "original", filepath.Base(original))
-				}
-			}
+		skip, err := handleDuplicate(cfg, detector, stats, filePath, fileName, file.FileInfo.Size())
+		if err != nil {
+			return err
+		}
+		if skip {
+			continue
 		}
 
 		// Process file normally
-		if ctx.isPhoto(fileName) {
-			if err := processPicture(cfg, ctx, file.FileInfo, group.folderName); err != nil {
+		if ctx.isPhoto(fileName) || ctx.isMovie(fileName) {
+			if err := processMediaFile(cfg, ctx, file.FileInfo, group.folderName, ""); err != nil {
 				if cfg.ContinueOnError {
 					stats.AddError(err)
-					slog.Error("failed to process photo, continuing", "file", fileName, "error", err)
-					continue
-				}
-				return err
-			}
-			stats.ProcessedFiles++
-		} else if ctx.isMovie(fileName) {
-			if err := processMovie(cfg, file.FileInfo, group.folderName); err != nil {
-				if cfg.ContinueOnError {
-					stats.AddError(err)
-					slog.Error("failed to process video, continuing", "file", fileName, "error", err)
+					slog.Error("failed to process file, continuing", "file", fileName, "error", err)
 					continue
 				}
 				return err
@@ -321,11 +327,7 @@ func processGroup(cfg *Config, ctx *executionContext, group fileGroup, stats *Pr
 func refreshOrphanRAW(cfg *Config, ctx *executionContext) error {
 	slog.Info("detected organized folder structure - refreshing orphan RAW separation")
 
-	stats := &ProcessingStats{
-		StartTime:        time.Now(),
-		EmptyDirsFailed:  make(map[string]string),
-		EmptyDirsRemoved: []string{},
-	}
+	stats := NewProcessingStats()
 	defer func() {
 		// Cleanup empty directories if requested (after all file operations)
 		if cfg.CleanupEmptyDirs && cfg.Mode != ModeValidate {
@@ -439,7 +441,7 @@ func processOrganizedFolder(cfg *Config, ctx *executionContext, stats *Processin
 		rawFilePath := filepath.Join(rawPath, rawFileName)
 
 		// Check if RAW has associated JPEG/HEIC in parent folder
-		if !isRawPaired(rawFilePath, folderPath, folderPath) {
+		if !isRawPaired(ctx, rawFilePath, folderPath, folderPath) {
 			// Orphan RAW - move to orphan/ folder
 			stats.OrphanRaw++
 
@@ -535,14 +537,8 @@ func splitInternal(cfg *Config) error {
 	slog.Info("media files collected", "count", len(mediaFiles))
 
 	// Initialize processing statistics
-	stats := &ProcessingStats{
-		StartTime:          time.Now(),
-		TotalFiles:         len(mediaFiles),
-		EmptyDirsFailed:    make(map[string]string),
-		EmptyDirsRemoved:   []string{},
-		DuplicatesDetected: make(map[string]string),
-		DuplicatesSkipped:  0,
-	}
+	stats := NewProcessingStats()
+	stats.TotalFiles = len(mediaFiles)
 	defer func() {
 		// Cleanup empty directories if requested (after all file operations)
 		if cfg.CleanupEmptyDirs && cfg.Mode != ModeValidate {
@@ -811,68 +807,20 @@ func splitInternal(cfg *Config) error {
 				fileName := file.FileInfo.Name()
 				filePath := filepath.Join(cfg.BasePath, fileName)
 
-				// Check duplicates (same logic as processGroup)
-				if cfg.DetectDuplicates {
-					isDup, original, err := detector.Check(filePath, file.FileInfo.Size())
-					if err != nil {
-						slog.Warn("failed to check duplicate", "file", fileName, "error", err)
-					} else if isDup {
-						stats.DuplicatesDetected[filePath] = original
-
-						if cfg.SkipDuplicates {
-							slog.Info("skipping duplicate", "file", fileName, "original", filepath.Base(original))
-							stats.DuplicatesSkipped++
-							continue
-						} else if cfg.MoveDuplicates {
-							duplicatesDir := filepath.Join(cfg.BasePath, duplicatesFolderName)
-							if cfg.Mode != ModeDryRun {
-								if err := os.MkdirAll(duplicatesDir, permDirectory); err != nil {
-									slog.Error("failed to create duplicates folder", "error", err)
-									if cfg.ContinueOnError {
-										stats.AddError(fmt.Errorf("failed to create duplicates folder: %w", err))
-										continue
-									}
-									return err
-								}
-							}
-
-							if err := moveFile(cfg.BasePath, fileName, duplicatesFolderName, cfg.Mode == ModeDryRun); err != nil {
-								slog.Error("failed to move duplicate", "file", fileName, "error", err)
-								if cfg.ContinueOnError {
-									stats.AddError(fmt.Errorf("failed to move duplicate %s: %w", fileName, err))
-									continue
-								}
-								return err
-							}
-							if cfg.Mode == ModeDryRun {
-								slog.Info("would move duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
-							} else {
-								slog.Info("moved duplicate", "file", fileName, "to", duplicatesFolderName+"/", "original", filepath.Base(original))
-							}
-							stats.DuplicatesSkipped++
-							continue
-						} else {
-							slog.Warn("duplicate detected (processing anyway)", "file", fileName, "original", filepath.Base(original))
-						}
-					}
+				skip, err := handleDuplicate(cfg, detector, stats, filePath, fileName, file.FileInfo.Size())
+				if err != nil {
+					return err
+				}
+				if skip {
+					continue
 				}
 
 				// Process file at root
-				if ctx.isPhoto(fileName) {
-					if err := processPictureAtRoot(cfg, ctx, file.FileInfo, destinationRoot); err != nil {
+				if ctx.isPhoto(fileName) || ctx.isMovie(fileName) {
+					if err := processMediaFile(cfg, ctx, file.FileInfo, "", destinationRoot); err != nil {
 						if cfg.ContinueOnError {
 							stats.AddError(err)
-							slog.Error("failed to process photo at root, continuing", "file", fileName, "error", err)
-							continue
-						}
-						return err
-					}
-					stats.ProcessedFiles++
-				} else if ctx.isMovie(fileName) {
-					if err := processMovieAtRoot(cfg, file.FileInfo, destinationRoot); err != nil {
-						if cfg.ContinueOnError {
-							stats.AddError(err)
-							slog.Error("failed to process video at root, continuing", "file", fileName, "error", err)
+							slog.Error("failed to process file at root, continuing", "file", fileName, "error", err)
 							continue
 						}
 						return err
@@ -896,58 +844,57 @@ func splitInternal(cfg *Config) error {
 	return nil
 }
 
-// processPicture handles the processing of picture files
-func processPicture(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFolder string) error {
-	slog.Debug("processing picture", "file", fi.Name(), "dest_folder", datedFolder)
+func processMediaFile(cfg *Config, ctx *executionContext, fi os.FileInfo, datedFolder string, destinationRoot string) error {
+	slog.Debug("processing media file", "file", fi.Name(), "dated_folder", datedFolder, "dest_root", destinationRoot)
 
-	destDir := datedFolder
+	if datedFolder == "" && destinationRoot != "" && cfg.Mode != ModeDryRun {
+		destRootPath := filepath.Join(cfg.BasePath, destinationRoot)
+		if err := os.MkdirAll(destRootPath, permDirectory); err != nil {
+			return fmt.Errorf("failed to create location folder %s: %w", destRootPath, err)
+		}
+	}
 
-	// Special handling for RAW files
-	if ctx.isRaw(fi.Name()) && !cfg.NoMoveRaw {
-		baseRawDir := filepath.Join(cfg.BasePath, datedFolder)
+	destPrefix := datedFolder
+	if datedFolder == "" {
+		destPrefix = destinationRoot
+	}
 
-		// Determine if RAW goes to raw/ or orphan/
-		targetFolder := rawFolderName
+	destDir := destPrefix
 
-		if cfg.SeparateOrphanRaw {
-			// Check if RAW has associated JPEG/HEIC
-			// Search in source (basePath) AND in destination (datedFolder)
-			// because JPEG may have already been moved
+	subfolderName, moveToSubfolder := mediaSubfolder(cfg, ctx, fi.Name())
+	if moveToSubfolder {
+		baseDir := filepath.Join(cfg.BasePath, destPrefix)
+
+		if subfolderName == rawFolderName && cfg.SeparateOrphanRaw {
 			rawFilePath := filepath.Join(cfg.BasePath, fi.Name())
-			destFolder := filepath.Join(cfg.BasePath, datedFolder)
-			if !isRawPaired(rawFilePath, cfg.BasePath, destFolder) {
-				targetFolder = orphanFolderName
+			if !isRawPaired(ctx, rawFilePath, cfg.BasePath, baseDir) {
+				subfolderName = orphanFolderName
 				slog.Debug("orphan RAW file (no JPEG/HEIC)", "file", fi.Name(), "dest", orphanFolderName)
 			}
 		}
 
-		rawDir, err := findOrCreateFolder(baseRawDir, targetFolder, cfg.Mode == ModeDryRun)
+		subDir, err := findOrCreateFolder(baseDir, subfolderName, cfg.Mode == ModeDryRun)
 		if err != nil {
 			return err
 		}
-		destDir = filepath.Join(datedFolder, rawDir)
+		if destPrefix != "" {
+			destDir = filepath.Join(destPrefix, subDir)
+		} else {
+			destDir = subDir
+		}
 	}
 
 	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.Mode == ModeDryRun)
 }
 
-// processMovie handles the processing of movie files
-func processMovie(cfg *Config, fi os.FileInfo, datedFolder string) error {
-	slog.Debug("processing movie", "file", fi.Name(), "dest_folder", datedFolder)
-
-	destDir := datedFolder
-
-	// Move to separate mov folder if needed
-	if !cfg.NoMoveMovie {
-		baseMovieDir := filepath.Join(cfg.BasePath, datedFolder)
-		movieDir, err := findOrCreateFolder(baseMovieDir, movFolderName, cfg.Mode == ModeDryRun)
-		if err != nil {
-			return err
-		}
-		destDir = filepath.Join(datedFolder, movieDir)
+func mediaSubfolder(cfg *Config, ctx *executionContext, fileName string) (string, bool) {
+	if ctx.isRaw(fileName) && !cfg.NoMoveRaw {
+		return rawFolderName, true
 	}
-
-	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.Mode == ModeDryRun)
+	if ctx.isMovie(fileName) && !cfg.NoMoveMovie {
+		return movFolderName, true
+	}
+	return "", false
 }
 
 func findOrCreateFolder(basedir, name string, dryRun bool) (string, error) {
@@ -1002,11 +949,10 @@ func moveFile(basedir, src, dest string, dryRun bool) error {
 // isRawPaired checks if a RAW file has an associated JPEG or HEIC
 // Searches in the source directory and optionally in the destination folder
 // (since JPEG may have already been moved during processing)
-func isRawPaired(rawPath string, basePath string, destFolder string) bool {
+func isRawPaired(ctx *executionContext, rawPath string, basePath string, destFolder string) bool {
 	baseName := strings.TrimSuffix(filepath.Base(rawPath), filepath.Ext(rawPath))
 
-	// Extensions to search for (JPEG and HEIC for iPhone)
-	photoExtensions := []string{".jpg", ".JPG", ".jpeg", ".JPEG", ".heic", ".HEIC"}
+	photoExtensions := ctx.photoSearchExtensions()
 
 	// 1. Search in source folder (basePath)
 	for _, ext := range photoExtensions {
@@ -1028,87 +974,5 @@ func isRawPaired(rawPath string, basePath string, destFolder string) bool {
 		}
 	}
 
-	return false // Orphelin
-}
-
-// processPictureAtRoot handles the processing of picture files for small groups (left at root)
-func processPictureAtRoot(cfg *Config, ctx *executionContext, fi os.FileInfo, destinationRoot string) error {
-	slog.Debug("processing picture at root", "file", fi.Name(), "dest_root", destinationRoot)
-
-	destDir := destinationRoot
-
-	// Create destination root folder if it doesn't exist (GPS mode)
-	if destinationRoot != "" && cfg.Mode != ModeDryRun {
-		destRootPath := filepath.Join(cfg.BasePath, destinationRoot)
-		if err := os.MkdirAll(destRootPath, permDirectory); err != nil {
-			return fmt.Errorf("failed to create location folder %s: %w", destRootPath, err)
-		}
-	}
-
-	// Special handling for RAW files
-	if ctx.isRaw(fi.Name()) && !cfg.NoMoveRaw {
-		baseRawDir := cfg.BasePath
-		if destinationRoot != "" {
-			baseRawDir = filepath.Join(cfg.BasePath, destinationRoot)
-		}
-
-		// Determine if RAW goes to raw/ or orphan/
-		targetFolder := rawFolderName
-
-		if cfg.SeparateOrphanRaw {
-			rawFilePath := filepath.Join(cfg.BasePath, fi.Name())
-			destFolder := baseRawDir
-			if !isRawPaired(rawFilePath, cfg.BasePath, destFolder) {
-				targetFolder = orphanFolderName
-				slog.Debug("orphan RAW file (no JPEG/HEIC)", "file", fi.Name(), "dest", orphanFolderName)
-			}
-		}
-
-		rawDir, err := findOrCreateFolder(baseRawDir, targetFolder, cfg.Mode == ModeDryRun)
-		if err != nil {
-			return err
-		}
-		if destinationRoot != "" {
-			destDir = filepath.Join(destinationRoot, rawDir)
-		} else {
-			destDir = rawDir
-		}
-	}
-
-	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.Mode == ModeDryRun)
-}
-
-// processMovieAtRoot handles the processing of movie files for small groups (left at root)
-func processMovieAtRoot(cfg *Config, fi os.FileInfo, destinationRoot string) error {
-	slog.Debug("processing movie at root", "file", fi.Name(), "dest_root", destinationRoot)
-
-	destDir := destinationRoot
-
-	// Create destination root folder if it doesn't exist (GPS mode)
-	if destinationRoot != "" && cfg.Mode != ModeDryRun {
-		destRootPath := filepath.Join(cfg.BasePath, destinationRoot)
-		if err := os.MkdirAll(destRootPath, permDirectory); err != nil {
-			return fmt.Errorf("failed to create location folder %s: %w", destRootPath, err)
-		}
-	}
-
-	// Move to separate mov folder if needed
-	if !cfg.NoMoveMovie {
-		baseMovieDir := cfg.BasePath
-		if destinationRoot != "" {
-			baseMovieDir = filepath.Join(cfg.BasePath, destinationRoot)
-		}
-
-		movieDir, err := findOrCreateFolder(baseMovieDir, movFolderName, cfg.Mode == ModeDryRun)
-		if err != nil {
-			return err
-		}
-		if destinationRoot != "" {
-			destDir = filepath.Join(destinationRoot, movieDir)
-		} else {
-			destDir = movieDir
-		}
-	}
-
-	return moveFile(cfg.BasePath, fi.Name(), destDir, cfg.Mode == ModeDryRun)
+	return false // Orphan
 }

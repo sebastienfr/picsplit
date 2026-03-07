@@ -125,7 +125,7 @@ func TestIsMovie(t *testing.T) {
 	}
 }
 
-func TestIsPicture(t *testing.T) {
+func TestIsPhoto(t *testing.T) {
 	tests := []struct {
 		name     string
 		filename string
@@ -1896,7 +1896,7 @@ func TestIsRawPaired(t *testing.T) {
 		createTestFile(t, tmpDir, "PHOTO_01.JPG", time.Now())
 
 		rawPath := filepath.Join(tmpDir, "PHOTO_01.NEF")
-		if !isRawPaired(rawPath, tmpDir, "") {
+		if !isRawPaired(newDefaultExecutionContext(), rawPath, tmpDir, "") {
 			t.Error("RAW should be paired with JPEG in same folder")
 		}
 	})
@@ -1909,7 +1909,7 @@ func TestIsRawPaired(t *testing.T) {
 		createTestFile(t, tmpDir, "IMG_1234.HEIC", time.Now())
 
 		rawPath := filepath.Join(tmpDir, "IMG_1234.DNG")
-		if !isRawPaired(rawPath, tmpDir, "") {
+		if !isRawPaired(newDefaultExecutionContext(), rawPath, tmpDir, "") {
 			t.Error("RAW should be paired with HEIC")
 		}
 	})
@@ -1921,7 +1921,7 @@ func TestIsRawPaired(t *testing.T) {
 		createTestFile(t, tmpDir, "PHOTO_02.NEF", time.Now())
 
 		rawPath := filepath.Join(tmpDir, "PHOTO_02.NEF")
-		if isRawPaired(rawPath, tmpDir, "") {
+		if isRawPaired(newDefaultExecutionContext(), rawPath, tmpDir, "") {
 			t.Error("RAW should be orphan (no JPEG/HEIC)")
 		}
 	})
@@ -1934,7 +1934,7 @@ func TestIsRawPaired(t *testing.T) {
 		createTestFile(t, tmpDir, "PHOTO_03.jpeg", time.Now())
 
 		rawPath := filepath.Join(tmpDir, "PHOTO_03.CR2")
-		if !isRawPaired(rawPath, tmpDir, "") {
+		if !isRawPaired(newDefaultExecutionContext(), rawPath, tmpDir, "") {
 			t.Error("RAW should be paired with .jpeg (case insensitive)")
 		}
 	})
@@ -1955,7 +1955,7 @@ func TestIsRawPaired(t *testing.T) {
 		createTestFile(t, tmpDir, "PHOTO_04.NEF", time.Now())
 
 		rawPath := filepath.Join(tmpDir, "PHOTO_04.NEF")
-		if !isRawPaired(rawPath, tmpDir, destFolder) {
+		if !isRawPaired(newDefaultExecutionContext(), rawPath, tmpDir, destFolder) {
 			t.Error("RAW should be paired with JPEG in destination folder")
 		}
 	})
@@ -2883,8 +2883,7 @@ func TestSplit_MinGroupSize_GPSMode(t *testing.T) {
 	}
 }
 
-// TestProcessPictureAtRoot tests processPictureAtRoot function
-func TestProcessPictureAtRoot(t *testing.T) {
+func TestProcessMediaFile_PhotoAtRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
 
@@ -2904,20 +2903,17 @@ func TestProcessPictureAtRoot(t *testing.T) {
 
 	ctx := newDefaultExecutionContext()
 
-	// Process photo at root (no destination root)
-	err = processPictureAtRoot(cfg, ctx, fi, "")
+	err = processMediaFile(cfg, ctx, fi, "", "")
 	if err != nil {
-		t.Fatalf("processPictureAtRoot() error: %v", err)
+		t.Fatalf("processMediaFile() error: %v", err)
 	}
 
-	// File should still be at root (no folder created for single file at root)
 	if _, err := os.Stat(filepath.Join(tmpDir, "photo.jpg")); err != nil {
-		t.Error("Photo should be at root after processPictureAtRoot")
+		t.Error("Photo should be at root after processMediaFile")
 	}
 }
 
-// TestProcessMovieAtRoot tests processMovieAtRoot function
-func TestProcessMovieAtRoot(t *testing.T) {
+func TestProcessMediaFile_MovieAtRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
 
@@ -2934,13 +2930,13 @@ func TestProcessMovieAtRoot(t *testing.T) {
 		NoMoveMovie: false,
 	}
 
-	// Process video at root with NoMoveMovie=false (should create mov/ folder)
-	err = processMovieAtRoot(cfg, fi, "")
+	ctx := newDefaultExecutionContext()
+
+	err = processMediaFile(cfg, ctx, fi, "", "")
 	if err != nil {
-		t.Fatalf("processMovieAtRoot() error: %v", err)
+		t.Fatalf("processMediaFile() error: %v", err)
 	}
 
-	// Video should be in mov/ folder
 	movDir := filepath.Join(tmpDir, "mov")
 	if _, err := os.Stat(movDir); os.IsNotExist(err) {
 		t.Error("mov/ folder should be created")
@@ -2951,12 +2947,10 @@ func TestProcessMovieAtRoot(t *testing.T) {
 	}
 }
 
-// TestProcessPictureAtRoot_RAW tests processPictureAtRoot with RAW files
-func TestProcessPictureAtRoot_RAW(t *testing.T) {
+func TestProcessMediaFile_RAWAtRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
 
-	// Create RAW file and associated JPEG
 	createTestFile(t, tmpDir, "photo.nef", baseTime)
 	createTestFile(t, tmpDir, "photo.jpg", baseTime)
 
@@ -2974,13 +2968,11 @@ func TestProcessPictureAtRoot_RAW(t *testing.T) {
 
 	ctx := newDefaultExecutionContext()
 
-	// Process RAW at root - should go to raw/ folder (paired with JPEG)
-	err = processPictureAtRoot(cfg, ctx, fiRAW, "")
+	err = processMediaFile(cfg, ctx, fiRAW, "", "")
 	if err != nil {
-		t.Fatalf("processPictureAtRoot() RAW error: %v", err)
+		t.Fatalf("processMediaFile() RAW error: %v", err)
 	}
 
-	// RAW should be in raw/ folder (paired with JPEG)
 	rawDir := filepath.Join(tmpDir, "raw")
 	if _, err := os.Stat(rawDir); os.IsNotExist(err) {
 		t.Error("raw/ folder should be created for paired RAW")
@@ -2991,12 +2983,10 @@ func TestProcessPictureAtRoot_RAW(t *testing.T) {
 	}
 }
 
-// TestProcessPictureAtRoot_WithDestinationRoot tests with GPS location root
-func TestProcessPictureAtRoot_WithDestinationRoot(t *testing.T) {
+func TestProcessMediaFile_PhotoWithDestinationRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
 
-	// Create location folder (GPS mode scenario)
 	locationRoot := "50.6508N-3.0735E" // Lille
 	locationDir := filepath.Join(tmpDir, locationRoot)
 	if err := os.MkdirAll(locationDir, 0755); err != nil {
@@ -3017,21 +3007,18 @@ func TestProcessPictureAtRoot_WithDestinationRoot(t *testing.T) {
 
 	ctx := newDefaultExecutionContext()
 
-	// Process photo at location root
-	err = processPictureAtRoot(cfg, ctx, fi, locationRoot)
+	err = processMediaFile(cfg, ctx, fi, "", locationRoot)
 	if err != nil {
-		t.Fatalf("processPictureAtRoot() with destination root error: %v", err)
+		t.Fatalf("processMediaFile() with destination root error: %v", err)
 	}
 
-	// File should be at location root
 	expectedPath := filepath.Join(tmpDir, locationRoot, "photo.jpg")
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
 		t.Error("Photo should be at location root")
 	}
 }
 
-// TestProcessMovieAtRoot_WithDestinationRoot tests with GPS location root
-func TestProcessMovieAtRoot_WithDestinationRoot(t *testing.T) {
+func TestProcessMediaFile_MovieWithDestinationRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.Local)
 
@@ -3054,13 +3041,13 @@ func TestProcessMovieAtRoot_WithDestinationRoot(t *testing.T) {
 		NoMoveMovie: false,
 	}
 
-	// Process video at location root - should go to Paris/mov/
-	err = processMovieAtRoot(cfg, fi, locationRoot)
+	ctx := newDefaultExecutionContext()
+
+	err = processMediaFile(cfg, ctx, fi, "", locationRoot)
 	if err != nil {
-		t.Fatalf("processMovieAtRoot() with destination root error: %v", err)
+		t.Fatalf("processMediaFile() with destination root error: %v", err)
 	}
 
-	// Video should be in Paris/mov/
 	expectedPath := filepath.Join(tmpDir, locationRoot, "mov", "video.mov")
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
 		t.Errorf("Video should be at %s", expectedPath)

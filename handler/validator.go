@@ -53,7 +53,7 @@ func (r *ValidationReport) CriticalErrorCount() int {
 
 // Print displays the validation report
 func (r *ValidationReport) Print() {
-	fmt.Println()
+	slog.Info("")
 	slog.Info("=== Validation Summary ===")
 
 	// Duration
@@ -84,7 +84,7 @@ func (r *ValidationReport) Print() {
 	// Critical errors
 	criticalCount := r.CriticalErrorCount()
 	if criticalCount > 0 {
-		fmt.Println()
+		slog.Info("")
 		slog.Error("critical issues detected", "count", criticalCount)
 		for _, err := range r.Errors {
 			if err.IsCritical() {
@@ -97,7 +97,7 @@ func (r *ValidationReport) Print() {
 
 	// Warnings
 	if len(r.Warnings) > 0 {
-		fmt.Println()
+		slog.Info("")
 		slog.Warn("warnings detected", "count", len(r.Warnings))
 		for _, warning := range r.Warnings {
 			slog.Warn(warning)
@@ -105,7 +105,7 @@ func (r *ValidationReport) Print() {
 	}
 
 	// Final recommendation
-	fmt.Println()
+	slog.Info("")
 	if criticalCount > 0 {
 		slog.Warn("→ Fix critical issues before proceeding")
 	} else {

@@ -417,6 +417,163 @@ func TestSha256File(t *testing.T) {
 	}
 }
 
+// TestSha256FilePartial tests partial hashing function
+func TestSha256FilePartial(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a small file (smaller than partialHashSize)
+	smallFile := filepath.Join(tmpDir, "small.txt")
+	smallContent := []byte("hello world")
+	if err := os.WriteFile(smallFile, smallContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// For small files, partial hash should equal full hash
+	partialHash, err := sha256FilePartial(smallFile, partialHashSize)
+	if err != nil {
+		t.Errorf("sha256FilePartial() error = %v", err)
+	}
+	fullHash, err := sha256File(smallFile)
+	if err != nil {
+		t.Errorf("sha256File() error = %v", err)
+	}
+	if partialHash != fullHash {
+		t.Errorf("sha256FilePartial() for small file should equal sha256File(), got %s != %s", partialHash, fullHash)
+	}
+
+	// Create a large file (bigger than partialHashSize)
+	largeFile := filepath.Join(tmpDir, "large.bin")
+	largeContent := make([]byte, partialHashSize+1024)
+	for i := range largeContent {
+		largeContent[i] = byte(i % 256)
+	}
+	if err := os.WriteFile(largeFile, largeContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// For large files, partial hash should differ from full hash
+	partialHashLarge, err := sha256FilePartial(largeFile, partialHashSize)
+	if err != nil {
+		t.Errorf("sha256FilePartial() error = %v", err)
+	}
+	fullHashLarge, err := sha256File(largeFile)
+	if err != nil {
+		t.Errorf("sha256File() error = %v", err)
+	}
+	if partialHashLarge == fullHashLarge {
+		t.Error("sha256FilePartial() for large file should differ from sha256File()")
+	}
+
+	// Partial hash should be deterministic
+	partialHash2, err := sha256FilePartial(largeFile, partialHashSize)
+	if err != nil {
+		t.Errorf("sha256FilePartial() error = %v", err)
+	}
+	if partialHashLarge != partialHash2 {
+		t.Errorf("sha256FilePartial() not deterministic: %s != %s", partialHashLarge, partialHash2)
+	}
+}
+
+// TestSha256FilePartial_NonExistent tests error handling for non-existent files
+func TestSha256FilePartial_NonExistent(t *testing.T) {
+	_, err := sha256FilePartial("/nonexistent/file.txt", partialHashSize)
+	if err == nil {
+		t.Error("sha256FilePartial() error = nil, want error for non-existent file")
+	}
+}
+
+// TestDuplicateDetector_LargeFileDuplicates tests two-stage hashing with files larger than partialHashSize
+func TestDuplicateDetector_LargeFileDuplicates(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create large identical files
+	content := make([]byte, partialHashSize+2048)
+	for i := range content {
+		content[i] = byte(i % 256)
+	}
+
+	file1 := filepath.Join(tmpDir, "large1.bin")
+	file2 := filepath.Join(tmpDir, "large2.bin")
+	if err := os.WriteFile(file1, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file2, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	size := int64(len(content))
+	detector := NewDuplicateDetector(true)
+	detector.AddFile(file1, size)
+	detector.AddFile(file2, size)
+
+	isDup, _, err := detector.Check(file1, size)
+	if err != nil {
+		t.Fatalf("Check(file1) error = %v", err)
+	}
+	if isDup {
+		t.Error("Check(file1) isDup = true, want false")
+	}
+
+	isDup, orig, err := detector.Check(file2, size)
+	if err != nil {
+		t.Fatalf("Check(file2) error = %v", err)
+	}
+	if !isDup {
+		t.Error("Check(file2) isDup = false, want true")
+	}
+	if orig != file1 {
+		t.Errorf("Check(file2) original = %q, want %q", orig, file1)
+	}
+}
+
+// TestDuplicateDetector_SamePartialDifferentFull tests files with same prefix but different suffix
+func TestDuplicateDetector_SamePartialDifferentFull(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create two files with identical first partialHashSize bytes but different endings
+	prefix := make([]byte, partialHashSize)
+	for i := range prefix {
+		prefix[i] = byte(i % 256)
+	}
+
+	content1 := append(append([]byte{}, prefix...), []byte("suffix_AAA")...)
+	content2 := append(append([]byte{}, prefix...), []byte("suffix_BBB")...)
+
+	file1 := filepath.Join(tmpDir, "file1.bin")
+	file2 := filepath.Join(tmpDir, "file2.bin")
+	if err := os.WriteFile(file1, content1, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file2, content2, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	size := int64(len(content1))
+	detector := NewDuplicateDetector(true)
+	detector.AddFile(file1, size)
+	detector.AddFile(file2, size)
+
+	isDup, _, err := detector.Check(file1, size)
+	if err != nil {
+		t.Fatalf("Check(file1) error = %v", err)
+	}
+	if isDup {
+		t.Error("Check(file1) isDup = true, want false")
+	}
+
+	isDup, _, err = detector.Check(file2, size)
+	if err != nil {
+		t.Fatalf("Check(file2) error = %v", err)
+	}
+	if isDup {
+		t.Error("Check(file2) isDup = true, want false (same prefix but different content)")
+	}
+
+	if len(detector.GetDuplicates()) != 0 {
+		t.Errorf("GetDuplicates() = %d, want 0", len(detector.GetDuplicates()))
+	}
+}
+
 // TestSha256File_NonExistent tests error handling for non-existent files
 func TestSha256File_NonExistent(t *testing.T) {
 	_, err := sha256File("/nonexistent/file.txt")

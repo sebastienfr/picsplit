@@ -2,9 +2,13 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"time"
 )
+
+// Version is set by main at startup from ldflags
+var Version = "dev"
 
 const (
 	defaultGPSRadiusMeters = 15000.0 // Default radius for GPS clustering: 15km
@@ -18,6 +22,25 @@ const (
 	ModeDryRun   ExecutionMode = "dryrun"   // Full simulation (scan + EXIF + simulate)
 	ModeRun      ExecutionMode = "run"      // Real execution (default)
 )
+
+// IsValid checks if the execution mode is a known valid value
+func (m ExecutionMode) IsValid() bool {
+	switch m {
+	case ModeValidate, ModeDryRun, ModeRun:
+		return true
+	default:
+		return false
+	}
+}
+
+// ParseExecutionMode parses a string into an ExecutionMode, returning an error if invalid
+func ParseExecutionMode(s string) (ExecutionMode, error) {
+	mode := ExecutionMode(s)
+	if !mode.IsValid() {
+		return "", fmt.Errorf("invalid execution mode: %s (must be: validate, dryrun, or run)", s)
+	}
+	return mode, nil
+}
 
 // Config holds all configuration for the split operation
 type Config struct {
