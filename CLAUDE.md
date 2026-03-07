@@ -4,7 +4,7 @@
 
 Go CLI tool that organizes photos and videos into dated folders based on EXIF metadata, GPS coordinates, and file timestamps. Two main commands: `split` (default) and `merge`.
 
-- **Language:** Go 1.25
+- **Language:** Go 1.26
 - **Module:** `github.com/sebastienfr/picsplit`
 - **CLI framework:** `urfave/cli/v2`
 - **Author:** Sebastien FRIESS
@@ -73,7 +73,7 @@ Always use `make` targets — do not run go commands directly unless necessary.
 
 ## CI/CD
 
-- **GitHub Actions:** test (Go 1.24/1.25, ubuntu/macos/windows), lint (staticcheck), build, CodeQL
+- **GitHub Actions:** test (Go 1.25/1.26, ubuntu/macos/windows), lint (staticcheck), build, CodeQL
 - **Release:** GoReleaser on tag push (`v*.*.*`), builds for linux/darwin/windows (amd64/arm64)
 - **Main branch:** `master` (for PRs), development on `main`
 

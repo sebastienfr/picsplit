@@ -1,10 +1,9 @@
 module github.com/sebastienfr/picsplit
 
-go 1.25
+go 1.26
 
 require (
 	github.com/abema/go-mp4 v1.4.1
-	github.com/mattn/go-isatty v0.0.20
 	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd
 	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/urfave/cli/v2 v2.27.5
