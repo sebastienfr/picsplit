@@ -75,11 +75,8 @@ Always use `make` targets — do not run go commands directly unless necessary.
 
 - **GitHub Actions:** test (Go 1.25/1.26, ubuntu/macos/windows), lint (staticcheck), build, CodeQL
 - **Release:** GoReleaser on tag push (`v*.*.*`), builds for linux/darwin/windows (amd64/arm64)
-- **Main branch:** `master` (for PRs), development on `main`
+- **Main branch:** `main`
 
-## Known Issues (deferred from v2.10.0 code review)
+## Known Issues
 
-- [#23](https://github.com/sebastienfr/picsplit/issues/23): splitter.go should be split into focused files
-- [#24](https://github.com/sebastienfr/picsplit/issues/24): Geocoding uses global mutable state — should be encapsulated in a struct
-- [#35](https://github.com/sebastienfr/picsplit/issues/35): Config struct fields could be grouped into sub-structs
-- [#40](https://github.com/sebastienfr/picsplit/issues/40): Migrate to Go 1.26
+All issues from v2.10.0 code review are resolved (#23, #24, #35, #40).
