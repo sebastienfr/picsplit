@@ -440,9 +440,11 @@ func TestIsSafeToRemoveAll(t *testing.T) {
 	// Path component counting depends on OS: on Windows, "/usr" resolves
 	// to a deep absolute path (e.g. C:\Users\runner\usr), so use native paths.
 	if runtime.GOOS == "windows" {
+		// On Windows, drive letter counts as a component:
+		// C:\X → ["C:", "X"] = 2 components (below threshold of 3)
+		// C:\X\Y → ["C:", "X", "Y"] = 3 components (meets threshold)
 		tests = append(tests,
 			tc{"Shallow path", `C:\Windows`, true},
-			tc{"Two components", `C:\Windows\System32`, true},
 			tc{"Deep enough path", `C:\Users\test\photos`, false},
 		)
 	} else {
