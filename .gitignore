@@ -73,3 +73,6 @@ Temporary Items
 ### INTELLIJ IDEA ###
 .idea/
 *.iml
+
+### Claude Code ###
+.claude/
